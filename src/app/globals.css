@@ -1,0 +1,371 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  /* =====================================================
+     LIGHT THEME — Glassmorphism Moderno con Paleta Neón
+     Base: Seguridad (#effaff 50 → #00aae1 500)
+     Acento: Creatividad (#ff7a39)
+     Verde: Salud (#0fecaa / #01ae6c)
+     Texto: Sensibilidad (#363636 950)
+  ===================================================== */
+  :root {
+    /* Fondo: degradado azul cian muy suave */
+    --background: 198 100% 97%;       /* #effaff */
+    --foreground: 0 0% 21%;           /* #363636 – gris 950 */
+
+    /* Tarjetas: blanco translúcido (glassmorphism via CSS) */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 21%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 21%;
+
+    /* Primary: naranja creatividad */
+    --primary: 22 100% 61%;           /* #ff7a39 */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: azul 100 */
+    --secondary: 198 100% 93%;        /* #dff4ff */
+    --secondary-foreground: 198 90% 35%;
+
+    /* Muted: gris sensibilidad 50 */
+    --muted: 0 0% 97%;                /* #f7f7f7 */
+    --muted-foreground: 0 0% 60%;     /* #999 */
+
+    /* Accent: azul neón base 500 */
+    --accent: 197 100% 44%;           /* #00aae1 */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Bordes: azul 200 neón delgado */
+    --border: 198 100% 86%;           /* #b6ecff */
+    --input: 0 0% 100%;
+    --ring: 22 100% 61%;              /* orange ring */
+    --radius: 0.5rem;
+
+    /* Custom glass tokens */
+    --glass-bg: rgba(255, 255, 255, 0.60);
+    --glass-border: rgba(0, 170, 225, 0.30);
+    --glass-shadow: 0 4px 24px rgba(0, 170, 225, 0.10);
+    --neon-cyan: #00aae1;
+    --neon-orange: #ff7a39;
+    --neon-green: #0fecaa;
+  }
+
+  .dark {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 22 93% 53%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 22 93% 53%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ============================================================
+   LIGHT GLASSMORPHISM UTILITIES (solo aplican en :root / sin .dark)
+   ============================================================ */
+html:not(.dark) .glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+html:not(.dark) body {
+  background: linear-gradient(135deg, #effaff 0%, #dff4ff 40%, #b6ecff 100%);
+  min-height: 100vh;
+}
+
+/* Neon border glow on focus in light mode */
+html:not(.dark) input:focus,
+html:not(.dark) textarea:focus,
+html:not(.dark) select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 170, 225, 0.25), 0 0 8px rgba(0, 170, 225, 0.15);
+  border-color: #00aae1 !important;
+}
+
+/* Light aside sidebar glass */
+html:not(.dark) aside {
+  background: rgba(255, 255, 255, 0.70);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right-color: #b6ecff;
+}
+
+/* Light header glass */
+html:not(.dark) header {
+  background: rgba(255, 255, 255, 0.80);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom-color: #b6ecff;
+}
+
+/* ============================================================
+   LIGHT MODE — Override de colores hardcodeados (dark-specific)
+   Paleta:
+     bg Deep     → #effaff / #dff4ff / #f7f7f7
+     bg Surface  → rgba(255,255,255,0.80) glass
+     bg Panel    → rgba(182,236,255,0.25) glass cian
+     border      → #b6ecff / rgba(0,170,225,0.25)
+     text main   → #04354d (Seguridad 950)
+     text sub    → #0177ab (Seguridad 700)
+     text muted  → #0196d4 (Seguridad 600)
+     text dim    → #00638d (Seguridad 800)
+     accent neon → #00aae1 (Seguridad 500)
+     orange      → #ff7a39
+     green       → #0fecaa / #01ae6c
+   ============================================================ */
+
+/* ── Fondos oscuros → fondos claros ── */
+html:not(.dark) .bg-\[\#050812\],
+html:not(.dark) .bg-\[\#03060f\] {
+  background-color: rgba(255,255,255,0.85) !important;
+  backdrop-filter: blur(8px);
+}
+html:not(.dark) .bg-\[\#0f172a\],
+html:not(.dark) .bg-\[\#0b101e\],
+html:not(.dark) .bg-\[\#0d1323\] {
+  background-color: #effaff !important;
+}
+html:not(.dark) .bg-\[\#111827\] {
+  background-color: #dff4ff !important;
+}
+html:not(.dark) .bg-\[\#0a0e17\] {
+  background-color: #f0faff !important;
+}
+html:not(.dark) .bg-\[\#151c2f\],
+html:not(.dark) .bg-\[\#151c2f\]\/50 {
+  background-color: rgba(182,236,255,0.30) !important;
+}
+html:not(.dark) .bg-black\/80,
+html:not(.dark) .bg-black\/60 {
+  background-color: rgba(0,99,141,0.08) !important;
+}
+html:not(.dark) .bg-black\/40 {
+  background-color: rgba(0,99,141,0.05) !important;
+}
+
+/* ── Bordes oscuros → bordes cian neón ── */
+html:not(.dark) .border-\[\#1e293b\],
+html:not(.dark) .border-\[\#1e293b\]\/50,
+html:not(.dark) .border-\[\#1e293b\]\/80 {
+  border-color: rgba(0,170,225,0.25) !important;
+}
+
+/* ── Texto blanco → navy oscuro ── */
+html:not(.dark) .text-white {
+  color: #04354d !important;
+}
+
+/* ── Textos slate → azules de la paleta ── */
+html:not(.dark) .text-slate-200 {
+  color: #04354d !important;
+}
+html:not(.dark) .text-slate-300 {
+  color: #055374 !important;
+}
+html:not(.dark) .text-slate-400 {
+  color: #0177ab !important;
+}
+html:not(.dark) .text-slate-500 {
+  color: #0196d4 !important;
+}
+html:not(.dark) .text-slate-600 {
+  color: #00638d !important;
+}
+html:not(.dark) .text-slate-700 {
+  color: #00aae1 !important;
+}
+
+/* ── Texto cian de la app → conservar pero sobre fondo claro ── */
+html:not(.dark) .text-\[\#06b6d4\] {
+  color: #0177ab !important;
+}
+
+/* ── Hover bg oscuro → hover cian claro ── */
+html:not(.dark) .hover\:bg-\[\#1e293b\]:hover {
+  background-color: rgba(0,170,225,0.12) !important;
+}
+html:not(.dark) .hover\:bg-\[\#1e293b\]\/50:hover {
+  background-color: rgba(0,170,225,0.08) !important;
+}
+
+/* ── bg-slate-800 / bg-slate-700 (usado en badges) ── */
+html:not(.dark) .bg-slate-800 {
+  background-color: rgba(0,170,225,0.10) !important;
+  color: #0177ab !important;
+}
+html:not(.dark) .bg-slate-700 {
+  background-color: rgba(0,170,225,0.12) !important;
+}
+html:not(.dark) .bg-slate-700\/50 {
+  background-color: rgba(0,170,225,0.08) !important;
+}
+
+/* ── Inputs de formulario en modo claro ── */
+html:not(.dark) input[type="text"],
+html:not(.dark) input[type="time"],
+html:not(.dark) input[type="date"],
+html:not(.dark) input[type="number"],
+html:not(.dark) textarea,
+html:not(.dark) select {
+  background-color: rgba(255,255,255,0.90) !important;
+  color: #04354d !important;
+  border-color: rgba(0,170,225,0.35) !important;
+}
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: #75dfff !important;
+  opacity: 1;
+}
+
+/* ── Títulos H1, H2 ── */
+html:not(.dark) h1,
+html:not(.dark) h2,
+html:not(.dark) h3,
+html:not(.dark) h4 {
+  color: #04354d !important;
+}
+
+/* ── Código / pre / mono ── */
+html:not(.dark) pre,
+html:not(.dark) code {
+  background-color: rgba(182,236,255,0.30) !important;
+  color: #0177ab !important;
+}
+
+/* ── Sombras internas ── */
+html:not(.dark) .shadow-inner {
+  box-shadow: inset 0 2px 8px rgba(0,170,225,0.08) !important;
+}
+
+/* ── Divisores ── */
+html:not(.dark) .divide-\[\#1e293b\] > * + * {
+  border-color: rgba(0,170,225,0.18) !important;
+}
+
+/* ── Nav activo en sidebar ── */
+html:not(.dark) [data-state="active"],
+html:not(.dark) .bg-secondary {
+  background-color: rgba(0,170,225,0.12) !important;
+  color: #00aae1 !important;
+}
+
+/* ── Botones primary (naranja) - conservar ── */
+html:not(.dark) .bg-\[\#ff5a1f\] {
+  background-color: #ff7a39 !important;
+}
+html:not(.dark) .hover\:bg-\[\#e04a14\]:hover {
+  background-color: #e06020 !important;
+}
+
+/* ── Toggle switches en claro ── */
+html:not(.dark) .bg-green-500 {
+  background-color: #01ae6c !important;
+}
+html:not(.dark) .bg-slate-700:not([class*="text"]) {
+  background-color: #b6ecff !important;
+}
+
+/* ── Fondos de card específicos de Alertas ── */
+html:not(.dark) .bg-\[\#0f172a\] {
+  background: rgba(255,255,255,0.75) !important;
+  backdrop-filter: blur(12px);
+  border-color: rgba(0,170,225,0.25) !important;
+}
+
+/* ── Paneles expandibles / sub-rows ── */
+html:not(.dark) tr.bg-\[\#0a0e17\] {
+  background-color: rgba(223,244,255,0.60) !important;
+}
+
+/* ── Schedule form main container ── */
+html:not(.dark) .bg-\[\#0a0f1c\] {
+  background-color: rgba(255,255,255,0.82) !important;
+  backdrop-filter: blur(12px);
+  border-color: rgba(0,170,225,0.25) !important;
+  box-shadow: 0 4px 24px rgba(0,170,225,0.08) !important;
+}
+
+/* ── Row hover unificado: translúcido azul cian para alertas y logs ── */
+html:not(.dark) .hover\:bg-\[\#151c2f\]:hover,
+html:not(.dark) tr.hover\:bg-\[\#151c2f\]:hover {
+  background-color: rgba(0,170,225,0.10) !important;
+}
+html:not(.dark) .hover\:bg-\[\#151c2f\]\/50:hover {
+  background-color: rgba(0,170,225,0.07) !important;
+}
+/* Filas activas (expanded) */
+html:not(.dark) .bg-\[\#151c2f\] {
+  background-color: rgba(0,170,225,0.13) !important;
+}
+
+/* ── Modales ── */
+html:not(.dark) .bg-\[\#050812\].border.border-\[\#1e293b\] {
+  background: rgba(255,255,255,0.92) !important;
+  backdrop-filter: blur(20px);
+}
+

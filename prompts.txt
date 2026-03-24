@@ -1,0 +1,122 @@
+Fecha y hora: 2026-03-21T22:14:25-05:00
+
+## 1. DESCRIPCIÓN GENERAL
+Crear una aplicación web llamada "Alertas" utilizando React con Next.js (App Router) para ser desplegada en Vercel. La base de datos es Oracle. 
+El backend se integrará mediante API Routes de Next.js y se utilizará el paquete `oracledb` para la conexión. El diseño de las pantallas debe basarse en el proyecto de Stitch llamado "Alertas". 
+Todas las funcionalidades de base de datos deben estar contenidas en el paquete PL/SQL `pkgln_alertas`.
+
+## 2. CONFIGURACIÓN DE BASE DE DATOS ORACLE
+- **Credenciales de conexión**:
+  - DB_USER: TEKER_DEV
+  - DB_PASSWORD: T3k3r_2025_D3v_$ecur3
+  - Connection String: tekerapp-db.maxapex.net:1521/orclpdb1
+
+- **Login**: Usar la función `pkgln_seguridad.f_validar_clave(p_username, p_password, 1)`. Retorna 1 si la clave es correcta.
+
+- **Tablas existentes**:
+  - `TKR_ALERTAS`: Almacena la configuración de las alertas.
+  - `TKR_LOG_ALERTAS`: Registra las ejecuciones e incidentes de alertas.
+CREATE TABLE TKR_ALERTAS
+(
+    ID                         NUMBER NOT NULL,
+    DESCRIPCION_ALERTA         VARCHAR2 (1000 BYTE) NOT NULL,
+    TIPO_PROCESO               VARCHAR2 (1 BYTE) DEFAULT 'P' NOT NULL,
+    PROCESO                    VARCHAR2 (4000 BYTE) NOT NULL,
+    FRECUENCIA                 VARCHAR2 (100 BYTE),
+    ESTADO                     VARCHAR2 (1 BYTE) DEFAULT 'A' NOT NULL,
+    PASOS_A_SEGUIR             CLOB,
+    CORREO                     VARCHAR2 (4000 BYTE),
+    TELEFONO                   VARCHAR2 (4000 BYTE),
+    PRIORIDAD                  VARCHAR2 (1 BYTE),
+    FECHA_ULTIMA_EJECUCION     DATE,
+    ULTIMO_ESTADO_EJECUCION    VARCHAR2 (1 BYTE),
+    FECHA_CREACION             DATE DEFAULT SYSDATE NOT NULL,
+    CREADO_POR                 VARCHAR2 (100 BYTE),
+    FECHA_MODIFICACION         DATE,
+    MODIFICADO_POR             VARCHAR2 (100 BYTE)
+);
+
+COMMENT ON TABLE TKR_ALERTAS IS 'Tabla de programacion de alertas';
+COMMENT ON COLUMN TKR_ALERTAS.ID IS 'Identificador unico del registro';
+COMMENT ON COLUMN TKR_ALERTAS.DESCRIPCION_ALERTA IS'Descripcion de la alerta';
+COMMENT ON COLUMN TKR_ALERTAS.TIPO_PROCESO IS 'Tipo de proceso a correr (P)rocedimiento (S)ql';
+COMMENT ON COLUMN TKR_ALERTAS.PROCESO IS 'Procedimiento o SQL a ejecutar';
+COMMENT ON COLUMN TKR_ALERTAS.FRECUENCIA IS 'Frecuencia de ejecucion (ej. formato CRON)';
+COMMENT ON COLUMN TKR_ALERTAS.ESTADO IS 'Estado de la alerta (A)ctiva (I)nactiva';
+COMMENT ON COLUMN TKR_ALERTAS.PASOS_A_SEGUIR IS 'Pasos a Ejecutar para solucionar el incidente';
+COMMENT ON COLUMN TKR_ALERTAS.CORREO IS  'Correos de notificacion de alerta, separados por coma';
+COMMENT ON COLUMN TKR_ALERTAS.TELEFONO IS 'Telefonos para enviar alerta, separados por coma';
+COMMENT ON COLUMN TKR_ALERTAS.PRIORIDAD IS 'Prioridad de atencion de la alerta (A)lta (M)edia (B)aja';
+COMMENT ON COLUMN TKR_ALERTAS.FECHA_ULTIMA_EJECUCION IS 'Fecha de la ultima ejecucion';
+COMMENT ON COLUMN TKR_ALERTAS.ULTIMO_ESTADO_EJECUCION IS 'Estado de la ultima ejecucion (E)xito o (F)allo';
+COMMENT ON COLUMN TKR_ALERTAS.FECHA_CREACION IS 'Fecha de creacion del registro';
+COMMENT ON COLUMN TKR_ALERTAS.CREADO_POR IS 'Usuario que creo el registro';
+COMMENT ON COLUMN TKR_ALERTAS.FECHA_MODIFICACION IS 'Fecha de ultima modificacion';
+COMMENT ON COLUMN TKR_ALERTAS.MODIFICADO_POR IS'Usuario que realizo la ultima modificacion';
+
+CREATE TABLE TKR_LOG_ALERTAS
+(
+  ID                    NUMBER                  NOT NULL,
+  ID_ALERTA             NUMBER                  NOT NULL,
+  LOG                   CLOB,
+  FECHA                 DATE                    NOT NULL,
+  ESTADO                VARCHAR2(1 BYTE)        NOT NULL,
+  ASIGNADO              VARCHAR2(100 BYTE),
+  SOLUCIONADO           VARCHAR2(100 BYTE),
+  FECHA_SOLUCION        DATE,
+  COMENTARIOS_SOLUCION  CLOB
+);
+
+COMMENT ON TABLE TKR_LOG_ALERTAS IS 'Tabla de registro de ejecuciones e incidentes de alertas';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.ID IS 'Identificador unico del registro';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.ID_ALERTA IS 'Identificador de la alerta';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.LOG IS 'LOG reportado al correr el proceso de la alerta u output del error';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.FECHA IS 'Fecha de la ejecucion de la alerta';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.ESTADO IS 'Estado del log/incidente (P)endiente (S)olucionado';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.ASIGNADO IS 'Nombre de la persona asignada a resolver la alerta';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.SOLUCIONADO IS 'Persona que soluciona la alerta';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.FECHA_SOLUCION IS 'Fecha en que se cerro/soluciono la alerta';
+COMMENT ON COLUMN TKR_LOG_ALERTAS.COMENTARIOS_SOLUCION IS 'Comentarios detallando como se resolvio el incidente';
+ 
+## 3. ESTRUCTURA DEL PAQUETE PL/SQL (pkgln_alertas)
+Se deben crear los siguientes procedimientos y funciones dentro del paquete `pkgln_alertas`:
+
+### a) Funciones de autenticación (ya existe en otro paquete, pero se menciona)
+- `f_validar_clave` (existente en pkgln_seguridad).
+
+
+## 4. FUNCIONALIDADES DE LA APLICACIÓN
+
+### 4.1. Módulo de autenticación
+- Pantalla de login con campos: usuario, contraseña.
+- Validación mediante `pkgln_seguridad.f_validar_clave`.
+- Almacenamiento de sesión con JWT (HttpOnly cookie) o NextAuth.js.
+- Protección de rutas (middleware).
+
+## 5. CONSIDERACIONES TÉCNICAS
+
+### 5.1. Backend (Next.js API Routes)
+- Usar `app/api/` con manejo de errores.
+- Pool de conexiones Oracle (reutilizar conexiones).
+
+### 5.2. Frontend (React)
+- Framework: Next.js 14+ con App Router.
+- Estilos: Tailwind CSS (para agilidad y diseño moderno).
+- Componentes UI: shadcn/ui o Material UI.
+- Estado: React Hook Form + Zod para validación.
+- Contexto de autenticación.
+- Manejo de fechas con date-fns.
+- Para mostrar CLOBs, usar formato pre o componente de texto.
+
+
+## 6. ENTREGABLES ESPERADOS
+- Código fuente completo del proyecto Next.js.
+- Script SQL con la creación del paquete `pkgln_alertas` y sus especificaciones/body.
+- Archivo `README.md` con instrucciones de instalación, configuración de variables de entorno y despliegue.
+- Archivo `prompts.txt` con este prompt completo y fechado.
+
+## 7. NOTAS ADICIONALES
+- La aplicación debe ser responsive (mobile first).
+- Manejar errores de base de datos de forma amigable para el usuario.
+- El paquete `pkgln_alertas` debe incluir manejo de excepciones.
+- Se debe crear la funcionalidad en cada pantalla que al presionar ctrl-alt-d se abra una ventana modal con la documentacion de cual es el metodo de la base de datos que se usa colocar un ejemplo para correr en un bloque anonimo con un icono para copiar la instruccion, los comentarios que vayan en lineas separadas y la salida esperada.
