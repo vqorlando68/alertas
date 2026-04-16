@@ -1,7 +1,7 @@
 const oracledb = require("oracledb");
 const fs = require('fs');
 
-const envContent = fs.readFileSync('.env.local', 'utf-8');
+const envContent = fs.readFileSync('.env', 'utf-8');
 const envVars = {};
 envContent.split('\n').forEach(line => {
   const [key, ...values] = line.split('=');

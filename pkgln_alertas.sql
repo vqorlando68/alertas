@@ -91,6 +91,11 @@ CREATE OR REPLACE PACKAGE pkgln_alertas AS
     p_estado    IN VARCHAR2
   );
 
+  -- Ejecuta el proceso de una alerta (si es tipo SQL 'S'), guarda log en HTML y envía correo
+  PROCEDURE p_procesar_proceso (
+    p_id_alerta IN NUMBER
+  );
+
 END pkgln_alertas;
 /
 
@@ -472,6 +477,113 @@ END;';
     END LOOP;
     COMMIT;
   END p_toggle_jobs_alerta;
+
+  -- ==========================================
+  -- PROCESAR PROCESO (SQL Dinámico + Log + Email)
+  -- ==========================================
+  PROCEDURE p_procesar_proceso (
+    p_id_alerta IN NUMBER
+  ) IS
+    v_tipo_proceso VARCHAR2(100);
+    v_proceso      VARCHAR2(4000);
+    v_correo       VARCHAR2(1000);
+    v_cursor       INTEGER;
+    v_row_count    INTEGER := 0;
+    v_col_count    INTEGER;
+    v_desc_tab     DBMS_SQL.DESC_TAB;
+    v_val          VARCHAR2(4000);
+    v_log_html     CLOB := '<table border="1" style="border-collapse: collapse; width: 100%;">';
+    v_has_rows     BOOLEAN := FALSE;
+    v_p_body      CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
+    v_p_body_html CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
+  BEGIN
+    -- Obtenemos configuración de la alerta
+    SELECT tipo_proceso, proceso, correo 
+      INTO v_tipo_proceso, v_proceso, v_correo
+    FROM tkr_alertas 
+    WHERE id = p_id_alerta;
+
+    -- Si el tipo de proceso es 'S' (Select o SQL)
+    IF v_tipo_proceso = 'S' THEN
+      v_cursor := DBMS_SQL.OPEN_CURSOR;
+      
+      BEGIN
+        DBMS_SQL.PARSE(v_cursor, v_proceso, DBMS_SQL.NATIVE);
+        DBMS_SQL.DESCRIBE_COLUMNS(v_cursor, v_col_count, v_desc_tab);
+
+        -- Definimos columnas como VARCHAR2 para simplificar lectura genérica
+        FOR i IN 1..v_col_count LOOP
+           DBMS_SQL.DEFINE_COLUMN(v_cursor, i, v_val, 4000);
+        END LOOP;
+
+        -- Encabezados de la tabla (primera fila)
+        v_log_html := v_log_html || '<tr style="background-color: #f2f2f2;">';
+        FOR i IN 1..v_col_count LOOP
+          v_log_html := v_log_html || '<th style="padding: 8px; border: 1px solid #ddd; text-align: left;">' || v_desc_tab(i).col_name || '</th>';
+        END LOOP;
+        v_log_html := v_log_html || '</tr>';
+
+        IF DBMS_SQL.EXECUTE(v_cursor) > -1 THEN
+          WHILE DBMS_SQL.FETCH_ROWS(v_cursor) > 0 LOOP
+            v_has_rows := TRUE;
+            v_log_html := v_log_html || '<tr>';
+            FOR i IN 1..v_col_count LOOP
+              DBMS_SQL.COLUMN_VALUE(v_cursor, i, v_val);
+              v_log_html := v_log_html || '<td style="padding: 8px; border: 1px solid #ddd;">' || NVL(v_val, '&nbsp;') || '</td>';
+            END LOOP;
+            v_log_html := v_log_html || '</tr>';
+          END LOOP;
+        END IF;
+        
+        v_log_html := v_log_html || '</table>';
+        DBMS_SQL.CLOSE_CURSOR(v_cursor);
+
+      EXCEPTION
+        WHEN OTHERS THEN
+          IF DBMS_SQL.IS_OPEN(v_cursor) THEN
+            DBMS_SQL.CLOSE_CURSOR(v_cursor);
+          END IF;
+          RAISE;
+      END;
+
+      -- Si arrojó datos, guardamos en log y enviamos correo
+      IF v_has_rows THEN
+        INSERT INTO tkr_log_alertas (
+          id, id_alerta, log, fecha, estado
+        ) VALUES (
+          tkr_log_alertas_seq.nextval, 
+          p_id_alerta, 
+          v_log_html, 
+          f_fecha_actual, 
+          'P'
+        );
+
+        -- Enviar correo con APEX_MAIL
+        IF v_correo IS NOT NULL THEN
+          v_p_body := 'Se ha detectado una alerta (ID: ' || p_id_alerta || '). Por favor revise el log adjunto en el sistema.';
+          v_p_body_html := '<h2>Alerta Detectada</h2>' || 
+                           '<p>Se ha ejecutado el proceso de la alerta <b>' || p_id_alerta || '</b> y se han encontrado resultados:</p>' || 
+                           v_log_html;
+
+          apex_mail.send(
+            p_to       => v_correo,
+            p_from     => 'soporte@teker.co', 
+            p_body     => v_p_body,
+            p_body_html => v_p_body_html,
+            p_subj     => 'ALERTA: ' || p_id_alerta
+          );
+          apex_mail.push_queue;
+        END IF;
+      END IF;
+    END IF;
+
+    
+    COMMIT;
+  EXCEPTION
+    WHEN OTHERS THEN
+      ROLLBACK;
+      RAISE_APPLICATION_ERROR(-20010, 'Error en p_procesar_proceso: ' || SQLERRM);
+  END p_procesar_proceso;
 
 END pkgln_alertas;
 /

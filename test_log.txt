@@ -1,0 +1,7 @@
+Starting connection test...
+User: TEKER_DEV
+Conn String: tekersalud-app.maxapex.net:1521/orclpdb1
+Password Length: 22
+Password contains $: true
+Connection failed: NJS-530: The host addresses or URLs provided by the connect string are incorrect or unresolvable in your network.
+Error Code: NJS-530
