@@ -484,22 +484,23 @@ END;';
   PROCEDURE p_procesar_proceso (
     p_id_alerta IN NUMBER
   ) IS
-    v_tipo_proceso VARCHAR2(100);
-    v_proceso      VARCHAR2(4000);
-    v_correo       VARCHAR2(1000);
-    v_cursor       INTEGER;
-    v_row_count    INTEGER := 0;
-    v_col_count    INTEGER;
-    v_desc_tab     DBMS_SQL.DESC_TAB;
-    v_val          VARCHAR2(4000);
-    v_log_html     CLOB := '<table border="1" style="border-collapse: collapse; width: 100%;">';
-    v_has_rows     BOOLEAN := FALSE;
-    v_p_body      CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
-    v_p_body_html CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
+    v_tipo_proceso       VARCHAR2(100);
+    v_descripcion_alerta VARCHAR2(4000);
+    v_proceso            VARCHAR2(4000);
+    v_correo             VARCHAR2(1000);
+    v_cursor             INTEGER;
+    v_row_count          INTEGER := 0;
+    v_col_count          INTEGER;
+    v_desc_tab           DBMS_SQL.DESC_TAB;
+    v_val                VARCHAR2(4000);
+    v_log_html           CLOB := '<table border="1" style="border-collapse: collapse; width: 100%;">';
+    v_has_rows           BOOLEAN := FALSE;
+    v_p_body             CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
+    v_p_body_html        CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
   BEGIN
     -- Obtenemos configuración de la alerta
-    SELECT tipo_proceso, proceso, correo 
-      INTO v_tipo_proceso, v_proceso, v_correo
+    SELECT tipo_proceso, proceso, correo, descripcion_alerta 
+      INTO v_tipo_proceso, v_proceso, v_correo, v_descripcion_alerta
     FROM tkr_alertas 
     WHERE id = p_id_alerta;
 
@@ -560,9 +561,9 @@ END;';
 
         -- Enviar correo con APEX_MAIL
         IF v_correo IS NOT NULL THEN
-          v_p_body := 'Se ha detectado una alerta (ID: ' || p_id_alerta || '). Por favor revise el log adjunto en el sistema.';
+          v_p_body := 'Se ha detectado una alerta (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
           v_p_body_html := '<h2>Alerta Detectada</h2>' || 
-                           '<p>Se ha ejecutado el proceso de la alerta <b>' || p_id_alerta || '</b> y se han encontrado resultados:</p>' || 
+                           '<p>Se ha ejecutado el proceso de la alerta <b>' || p_id_alerta || ' - ' || v_descripcion_alerta || '</b> y se han encontrado los siguientes resultados:</p>' || 
                            v_log_html;
 
           apex_mail.send(
@@ -570,7 +571,7 @@ END;';
             p_from     => 'soporte@teker.co', 
             p_body     => v_p_body,
             p_body_html => v_p_body_html,
-            p_subj     => 'ALERTA: ' || p_id_alerta
+            p_subj     => 'ALERTA: ' || p_id_alerta || ' - ' || SUBSTR(v_descripcion_alerta, 1, 50)
           );
           apex_mail.push_queue;
         END IF;

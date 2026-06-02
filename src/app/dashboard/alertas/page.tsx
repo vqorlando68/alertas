@@ -7,7 +7,7 @@ import * as z from "zod"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import Link from "next/link"
-import { Save, History, FileText, AlertTriangle, ChevronRight, Activity, AlignLeft, Bold, Italic, List, Link2, Mail, Phone, Plus, Search, ChevronDown, ChevronUp, Edit2, Trash2, TrendingUp, TrendingDown, BookOpen, CalendarClock, Clock } from "lucide-react"
+import { Save, History, FileText, AlertTriangle, ChevronRight, Activity, AlignLeft, Bold, Italic, List, Link2, Mail, Phone, Plus, Search, ChevronDown, ChevronUp, Edit2, Trash2, TrendingUp, TrendingDown, BookOpen, CalendarClock, Clock, Play, XCircle, CheckCircle2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -58,6 +58,42 @@ export default function AlertasPage() {
     alerta: null,
     nuevoEstado: ''
   })
+  const [execConfirm, setExecConfirm] = React.useState<{ show: boolean, alerta: Alerta | null }>({
+    show: false,
+    alerta: null
+  })
+  const [isExecuting, setIsExecuting] = React.useState(false)
+
+  // Custom Toast State
+  const [toast, setToast] = React.useState<{ show: boolean, type: 'error' | 'success', message: string, details?: string }>({
+    show: false,
+    type: 'success',
+    message: ''
+  })
+
+  const showToast = (type: 'error' | 'success', message: string, details?: string) => {
+    setToast({ show: true, type, message, details })
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 6000)
+  }
+
+  const renderToast = () => {
+    if (!toast.show) return null;
+    return (
+      <div className={cn(
+        "fixed top-6 left-1/2 -translate-x-1/2 z-50 p-4 rounded-xl shadow-2xl border max-w-sm w-full sm:w-auto animate-in slide-in-from-top-8 duration-300",
+        toast.type === 'error' ? "bg-red-950/90 border-red-500/50 text-red-100" : "bg-[#06b6d4]/10 border-[#06b6d4]/50 text-cyan-50"
+      )}>
+        <div className="flex items-start">
+           {toast.type === 'error' ? <XCircle className="w-5 h-5 text-red-500 mr-3 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 text-[#06b6d4] mr-3 mt-0.5" />}
+           <div>
+             <h4 className="text-sm font-bold">{toast.message}</h4>
+             {toast.details && <p className="text-xs opacity-80 mt-1 leading-relaxed bg-black/20 p-2 rounded">{toast.details}</p>}
+           </div>
+           <button onClick={() => setToast(prev => ({...prev, show: false}))} className="ml-4 opacity-50 hover:opacity-100 uppercase text-[10px] font-bold">X</button>
+        </div>
+      </div>
+    );
+  }
   
   const [currentPage, setCurrentPage] = React.useState(1)
   const itemsPerPage = 10
@@ -160,10 +196,16 @@ export default function AlertasPage() {
   const handleDelete = async (id: number) => {
     if (confirm("¿Está seguro que desea eliminar/desactivar esta alerta?")) {
       try {
-        await fetch(`/api/alertas/${id}`, { method: "DELETE" })
-        fetchAlertas()
-      } catch (err) {
+        const res = await fetch(`/api/alertas/${id}`, { method: "DELETE" })
+        if (res.ok) {
+          showToast("success", "Alerta desactivada correctamente")
+          fetchAlertas()
+        } else {
+          showToast("error", "Error al desactivar la alerta")
+        }
+      } catch (err: any) {
         console.error(err)
+        showToast("error", "Error de conexión", err.message)
       }
     }
   }
@@ -198,11 +240,14 @@ export default function AlertasPage() {
       if (res.ok) {
         setIsFormOpen(false)
         fetchAlertas()
+        showToast("success", isUpdate ? "Alerta actualizada correctamente" : "Alerta creada correctamente")
       } else {
-        alert("Error al guardar la alerta.")
+        const errData = await res.json().catch(() => ({}));
+        showToast("error", "Error al guardar la alerta", errData.details || errData.error || "No se pudieron registrar los cambios.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
+      showToast("error", "Error de conexión", err.message)
     }
   }
 
@@ -273,10 +318,39 @@ export default function AlertasPage() {
     } catch(err) { console.error(err); }
   }
 
+  const handleExecuteAlert = (alerta: Alerta) => {
+    setExecConfirm({ show: true, alerta });
+  }
+
+  const confirmExecuteAction = async () => {
+    if (!execConfirm.alerta) return;
+    const { alerta } = execConfirm;
+    setExecConfirm({ show: false, alerta: null });
+    setIsExecuting(true);
+    try {
+      const res = await fetch(`/api/alertas/${alerta.ID}/ejecutar`, {
+        method: "POST"
+      });
+      if (res.ok) {
+        showToast("success", "Alerta ejecutada correctamente", "Se ha generado un nuevo log en el historial técnico.");
+        fetchAlertas();
+      } else {
+        const errData = await res.json();
+        showToast("error", "Error al ejecutar alerta", errData.details || errData.error || "Falla del motor de base de datos.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast("error", "Error de red", err.message || "No se pudo establecer conexión con el servidor.");
+    } finally {
+      setIsExecuting(false);
+    }
+  }
+
   // --- FORM VIEW (early return is safe because all hooks are already declared above) ---
   if (isFormOpen) {
     return (
-      <div className="max-w-4xl mx-auto pb-20 font-sans">
+      <div className="max-w-4xl mx-auto pb-20 font-sans relative">
+        {renderToast()}
         <div className="flex items-center text-xs text-slate-500 mb-4 space-x-2">
           <span className="cursor-pointer hover:text-white transition-colors" onClick={() => setIsFormOpen(false)}>Gestión</span>
           <ChevronRight className="w-3 h-3" />
@@ -456,7 +530,8 @@ export default function AlertasPage() {
   // --- TABLE VIEW ---
 
   return (
-    <div className="mx-auto pb-20 font-sans space-y-8">
+    <div className="mx-auto pb-20 font-sans space-y-8 relative">
+      {renderToast()}
       
       {/* Header */}
       <div className="flex justify-between items-start">
@@ -655,6 +730,7 @@ export default function AlertasPage() {
                           </div>
                         </td>
                         <td className="py-4 px-6 text-right space-x-3 whitespace-nowrap">
+                          <button title="Ejecutar Alerta" onClick={() => handleExecuteAlert(a)} className="text-slate-500 hover:text-green-500 transition-colors"><Play className="w-4 h-4 inline-block" /></button>
                           <button title="Ver Logs" onClick={() => window.location.href = `/dashboard/alertas/${a.ID}/logs`} className="text-slate-500 hover:text-white transition-colors"><FileText className="w-4 h-4 inline-block" /></button>
                           <button title="Ver Programaciones" onClick={() => handleViewSchedule(a)} className="text-slate-500 hover:text-[#06b6d4] transition-colors"><CalendarClock className="w-4 h-4 inline-block" /></button>
                           <button onClick={() => openEdit(a)} className="text-slate-500 hover:text-white transition-colors"><Edit2 className="w-4 h-4 inline-block" /></button>
@@ -842,6 +918,44 @@ export default function AlertasPage() {
                  {toggleConfirm.nuevoEstado === 'I' ? "Sí, Desactivar" : "Sí, Activar"}
                </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {execConfirm.show && execConfirm.alerta && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 px-4">
+          <div className="bg-[#050812] border border-[#1e293b] rounded-xl p-6 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-white mb-3 flex items-center">
+              <Play className="w-5 h-5 mr-2 text-green-500" /> 
+              Confirmar Ejecución de Alerta
+            </h3>
+            <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+              ¿Está seguro que desea ejecutar manualmente la alerta <strong className="text-white">#{execConfirm.alerta.ID}</strong> ahora? 
+              Se correrá la consulta o procedimiento y se generará un nuevo log en el historial técnico.
+            </p>
+            <div className="flex bg-[#03060f] -mx-6 -mb-6 px-6 py-4 border-t border-[#1e293b] justify-end space-x-3 rounded-b-xl">
+               <button 
+                 onClick={() => setExecConfirm({ show: false, alerta: null })} 
+                 className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                >
+                 Cancelar
+               </button>
+               <Button 
+                 onClick={confirmExecuteAction} 
+                 className="h-9 px-4 text-xs font-bold rounded-md border shadow-lg transition-all bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-white border-green-500/20 shadow-green-500/10"
+                >
+                 Sí, Ejecutar
+               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isExecuting && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-xs">
+          <div className="bg-[#050812] border border-[#1e293b] rounded-xl p-6 flex flex-col items-center space-y-4 shadow-2xl">
+            <Activity className="w-8 h-8 text-green-500 animate-spin" />
+            <span className="text-sm font-medium text-slate-300">Ejecutando proceso en base de datos...</span>
           </div>
         </div>
       )}
