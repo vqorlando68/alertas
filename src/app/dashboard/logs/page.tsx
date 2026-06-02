@@ -22,7 +22,9 @@ import {
   Save,
   X,
   ArrowLeft,
-  ShieldAlert
+  ShieldAlert,
+  Eye,
+  Code
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -44,12 +46,25 @@ type LogEntry = {
   PASOS_A_SEGUIR: string
 }
 
+const isHtml = (str: string) => {
+  if (!str) return false
+  return /<[a-z][\s\S]*>/i.test(str)
+}
+
 export default function LogsPage() {
   const { t } = useApp()
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [expandedRows, setExpandedRows] = React.useState<number[]>([])
   
+  // Expanded rows view modes: Record<number, 'text' | 'html'>
+  const [rowViewModes, setRowViewModes] = React.useState<Record<number, 'text' | 'html'>>({})
+  
+  const getRowViewMode = (logId: number, logContent: string): 'text' | 'html' => {
+    if (rowViewModes[logId]) return rowViewModes[logId]
+    return isHtml(logContent) ? 'html' : 'text'
+  }
+
   // Filters
   const [fechaIni, setFechaIni] = React.useState("")
   const [fechaFin, setFechaFin] = React.useState("")
@@ -71,6 +86,7 @@ export default function LogsPage() {
   const [editEstado, setEditEstado] = React.useState("P")
   const [editAsignado, setEditAsignado] = React.useState("")
   const [editSolucion, setEditSolucion] = React.useState("")
+  const [editingLogViewMode, setEditingLogViewMode] = React.useState<'text' | 'html'>('text')
 
   React.useEffect(() => {
     fetchLogs()
@@ -127,6 +143,7 @@ export default function LogsPage() {
     setEditEstado(log.ESTADO || "P")
     setEditAsignado(log.ASIGNADO || "")
     setEditSolucion(log.COMENTARIOS_SOLUCION || "")
+    setEditingLogViewMode(isHtml(log.LOG) ? 'html' : 'text')
   }
 
   const handleSaveSolucion = async () => {
@@ -198,15 +215,116 @@ export default function LogsPage() {
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
                   <Terminal className="w-4 h-4 mr-2 text-[#ff5a1f]" /> Stack Trace / Log de Error
                 </h3>
-                <span className="text-[10px] font-mono bg-[#06b6d4]/10 text-[#06b6d4] border border-[#06b6d4]/20 px-2.5 py-1 rounded-md">
-                  TIMESTAMP: {editingLog.FECHA ? format(new Date(editingLog.FECHA), "yyyy-MM-dd HH:mm:ss") : 'N/A'}
-                </span>
+                <div className="flex items-center space-x-3">
+                  <div className="flex bg-[#050812] border border-[#1e293b] p-0.5 rounded-lg">
+                    <button
+                      onClick={() => setEditingLogViewMode('text')}
+                      className={cn(
+                        "flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all duration-200",
+                        editingLogViewMode === 'text'
+                          ? "bg-[#ff5a1f] text-white shadow-md shadow-[#ff5a1f]/20"
+                          : "text-slate-400 hover:text-white"
+                      )}
+                    >
+                      <Code className="w-3 h-3" />
+                      <span>Código</span>
+                    </button>
+                    <button
+                      onClick={() => setEditingLogViewMode('html')}
+                      className={cn(
+                        "flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all duration-200",
+                        editingLogViewMode === 'html'
+                          ? "bg-[#ff5a1f] text-white shadow-md shadow-[#ff5a1f]/20"
+                          : "text-slate-400 hover:text-white"
+                      )}
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>HTML</span>
+                    </button>
+                  </div>
+                  <span className="text-[10px] font-mono bg-[#06b6d4]/10 text-[#06b6d4] border border-[#06b6d4]/20 px-2.5 py-1 rounded-md">
+                    TIMESTAMP: {editingLog.FECHA ? format(new Date(editingLog.FECHA), "yyyy-MM-dd HH:mm:ss") : 'N/A'}
+                  </span>
+                </div>
               </div>
-              <div className="bg-black/80 border border-red-500/20 rounded-lg p-5 overflow-auto max-h-80">
-                <pre className="text-xs font-mono text-red-400/90 whitespace-pre-wrap leading-relaxed">
-                  {editingLog.LOG || '-- Sin traza de error capturada --'}
-                </pre>
-              </div>
+              
+              {editingLogViewMode === 'html' ? (
+                <div className="border border-[#1e293b] rounded-lg overflow-hidden h-80 bg-[#050812]">
+                  <iframe
+                    srcDoc={`
+                      <!DOCTYPE html>
+                      <html>
+                        <head>
+                          <meta charset="utf-8">
+                          <style>
+                            body {
+                              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                              background-color: #050812;
+                              color: #cbd5e1;
+                              margin: 0;
+                              padding: 16px;
+                              font-size: 13px;
+                            }
+                            table {
+                              width: 100%;
+                              border-collapse: collapse;
+                              margin-bottom: 16px;
+                              border: 1px solid #1e293b;
+                            }
+                            th {
+                              background-color: #0f172a;
+                              color: #38bdf8;
+                              font-weight: 600;
+                              text-align: left;
+                              padding: 10px 12px;
+                              border: 1px solid #1e293b;
+                              font-size: 11px;
+                              text-transform: uppercase;
+                              letter-spacing: 0.05em;
+                            }
+                            td {
+                              padding: 10px 12px;
+                              border: 1px solid #1e293b;
+                            }
+                            tr:nth-child(even) {
+                              background-color: #0a0f1d;
+                            }
+                            tr:hover {
+                              background-color: #0f172a;
+                            }
+                            ::-webkit-scrollbar {
+                              width: 8px;
+                              height: 8px;
+                            }
+                            ::-webkit-scrollbar-track {
+                              background: #050812;
+                            }
+                            ::-webkit-scrollbar-thumb {
+                              background: #1e293b;
+                              border-radius: 4px;
+                            }
+                            ::-webkit-scrollbar-thumb:hover {
+                              background: #334155;
+                            }
+                          </style>
+                        </head>
+                        <body>
+                          ${editingLog.LOG || ''}
+                        </body>
+                      </html>
+                    `}
+                    className="w-full h-full border-0"
+                    title="HTML Log Preview"
+                    sandbox="allow-same-origin"
+                  />
+                </div>
+              ) : (
+                <div className="bg-black/80 border border-red-500/20 rounded-lg p-5 overflow-auto max-h-80">
+                  <pre className="text-xs font-mono text-red-400/90 whitespace-pre-wrap leading-relaxed">
+                    {editingLog.LOG || '-- Sin traza de error capturada --'}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
 
@@ -497,14 +615,116 @@ export default function LogsPage() {
                                 </div>
 
                                 <div className="space-y-2">
-                                  <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
-                                    <Terminal className="w-3.5 h-3.5 mr-2 text-red-500" /> Log de Error / Ejecución
-                                  </h4>
-                                  <div className="bg-[#050812] border border-[#1e293b] rounded-lg p-4 overflow-hidden relative group/code">
-                                    <pre className="text-[11px] font-mono text-cyan-500/80 overflow-x-auto whitespace-pre-wrap max-h-60">
-                                      {log.LOG || '-- Sin detalles de log --'}
-                                    </pre>
+                                  <div className="flex justify-between items-center">
+                                    <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
+                                      <Terminal className="w-3.5 h-3.5 mr-2 text-red-500" /> Log de Error / Ejecución
+                                    </h4>
+                                    
+                                    <div className="flex bg-[#050812] border border-[#1e293b] p-0.5 rounded-lg">
+                                      <button
+                                        onClick={() => setRowViewModes(prev => ({ ...prev, [log.ID]: 'text' }))}
+                                        className={cn(
+                                          "flex items-center space-x-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition-all duration-200",
+                                          getRowViewMode(log.ID, log.LOG) === 'text'
+                                            ? "bg-[#ff5a1f] text-white shadow-sm"
+                                            : "text-slate-400 hover:text-white"
+                                        )}
+                                      >
+                                        <Code className="w-2.5 h-2.5" />
+                                        <span>Código</span>
+                                      </button>
+                                      <button
+                                        onClick={() => setRowViewModes(prev => ({ ...prev, [log.ID]: 'html' }))}
+                                        className={cn(
+                                          "flex items-center space-x-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition-all duration-200",
+                                          getRowViewMode(log.ID, log.LOG) === 'html'
+                                            ? "bg-[#ff5a1f] text-white shadow-sm"
+                                            : "text-slate-400 hover:text-white"
+                                        )}
+                                      >
+                                        <Eye className="w-2.5 h-2.5" />
+                                        <span>HTML</span>
+                                      </button>
+                                    </div>
                                   </div>
+
+                                  {getRowViewMode(log.ID, log.LOG) === 'html' ? (
+                                    <div className="border border-[#1e293b] rounded-lg overflow-hidden h-60 bg-[#050812]">
+                                      <iframe
+                                        srcDoc={`
+                                          <!DOCTYPE html>
+                                          <html>
+                                            <head>
+                                              <meta charset="utf-8">
+                                              <style>
+                                                body {
+                                                  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                                                  background-color: #050812;
+                                                  color: #cbd5e1;
+                                                  margin: 0;
+                                                  padding: 12px;
+                                                  font-size: 12px;
+                                                }
+                                                table {
+                                                  width: 100%;
+                                                  border-collapse: collapse;
+                                                  margin-bottom: 12px;
+                                                  border: 1px solid #1e293b;
+                                                }
+                                                th {
+                                                  background-color: #0f172a;
+                                                  color: #38bdf8;
+                                                  font-weight: 600;
+                                                  text-align: left;
+                                                  padding: 8px 10px;
+                                                  border: 1px solid #1e293b;
+                                                  font-size: 10px;
+                                                  text-transform: uppercase;
+                                                  letter-spacing: 0.05em;
+                                                }
+                                                td {
+                                                  padding: 8px 10px;
+                                                  border: 1px solid #1e293b;
+                                                }
+                                                tr:nth-child(even) {
+                                                  background-color: #0a0f1d;
+                                                }
+                                                tr:hover {
+                                                  background-color: #0f172a;
+                                                }
+                                                ::-webkit-scrollbar {
+                                                  width: 6px;
+                                                  height: 6px;
+                                                }
+                                                ::-webkit-scrollbar-track {
+                                                  background: #050812;
+                                                }
+                                                ::-webkit-scrollbar-thumb {
+                                                  background: #1e293b;
+                                                  border-radius: 3px;
+                                                }
+                                                ::-webkit-scrollbar-thumb:hover {
+                                                  background: #334155;
+                                                }
+                                              </style>
+                                            </head>
+                                            <body>
+                                              ${log.LOG || ''}
+                                            </body>
+                                          </html>
+                                        `}
+                                        className="w-full h-full border-0"
+                                        title="HTML Log Preview"
+                                        sandbox="allow-same-origin"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="bg-[#050812] border border-[#1e293b] rounded-lg p-4 overflow-hidden relative group/code">
+                                      <pre className="text-[11px] font-mono text-cyan-500/80 overflow-x-auto whitespace-pre-wrap max-h-60">
+                                        {log.LOG || '-- Sin detalles de log --'}
+                                      </pre>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
