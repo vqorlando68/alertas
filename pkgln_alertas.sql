@@ -3,6 +3,26 @@ CREATE OR REPLACE PACKAGE pkgln_alertas AS
   -- TYPE REF CURSOR para devolver result sets
   TYPE cur_type IS REF CURSOR;
 
+  -- Variables globales genéricas para paso de parámetros dinámicos a funciones/procedimientos
+  g_num1 NUMBER;
+  g_num2 NUMBER;
+  g_num3 NUMBER;
+  g_num4 NUMBER;
+
+  g_str1 VARCHAR2(4000);
+  g_str2 VARCHAR2(4000);
+  g_str3 VARCHAR2(4000);
+  g_str4 VARCHAR2(4000);
+
+  g_date1 DATE;
+  g_date2 DATE;
+  g_date3 DATE;
+  g_date4 DATE;
+
+  g_clob1 CLOB;
+  g_clob2 CLOB;
+  g_clob3 CLOB;
+
   -- ==========================================
   -- PROCEDURES Y FUNCIONES PARA TKR_ALERTAS
   -- ==========================================

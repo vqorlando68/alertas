@@ -1,7 +1,8 @@
 Starting connection test...
 User: TEKER_DEV
-Conn String: tekersalud-app.maxapex.net:1521/orclpdb1
+Conn String: tekersalud-db.maxapex.net:1521/orclpdb1
 Password Length: 22
 Password contains $: true
-Connection failed: NJS-530: The host addresses or URLs provided by the connect string are incorrect or unresolvable in your network.
-Error Code: NJS-530
+Connection failed: ORA-28000: The account is locked; login denied.
+Help: https://docs.oracle.com/error-help/db/ora-28000/
+Error Code: ORA-28000
