@@ -399,6 +399,7 @@ export default function AlertasPage() {
                   className="w-full bg-[#050812] border border-[#1e293b] text-slate-200 rounded-md h-11 px-3 focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] focus:border-[#ff5a1f]"
                 >
                   <option value="P">(P)rocedimiento</option>
+                  <option value="F">(F)unción</option>
                   <option value="S">(S)QL Script</option>
                 </select>
               </div>
@@ -653,6 +654,7 @@ export default function AlertasPage() {
           <select value={uiFilterTipoProceso} onChange={e => setUiFilterTipoProceso(e.target.value)} className="w-full bg-[#050812] border border-[#1e293b] text-slate-300 rounded-md h-10 px-3 text-sm focus:outline-none">
             <option value="ALL">{t("alerts.allTypes")}</option>
             <option value="P">{t("alerts.proc")}</option>
+            <option value="F">{t("alerts.func")}</option>
             <option value="S">{t("alerts.sql")}</option>
           </select>
         </div>
@@ -715,7 +717,7 @@ export default function AlertasPage() {
                         </td>
                         <td className="py-4 px-6">
                           <span className="px-2 py-1 rounded-[4px] bg-[#06b6d4]/15 text-[#06b6d4] border border-[#06b6d4]/30 text-[10px] font-bold uppercase tracking-wider">
-                            {a.TIPO_PROCESO === 'P' ? 'PROC' : 'SQL'}
+                            {a.TIPO_PROCESO === 'P' ? 'PROC' : a.TIPO_PROCESO === 'F' ? 'FUNC' : 'SQL'}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-[12px] font-mono text-[#06b6d4]">

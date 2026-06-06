@@ -1,5 +1,9 @@
 const oracledb = require("oracledb");
 const fs = require('fs');
+const { loadEnvConfig } = require("@next/env");
+
+// Load local environment variables
+loadEnvConfig(process.cwd());
 
 async function compilePackage() {
   let connection;
@@ -12,7 +16,8 @@ async function compilePackage() {
     
     console.log("Connected to DB. Starting compilation...");
     const sqlFile = fs.readFileSync('pkgln_alertas.sql', 'utf-8');
-    const blocks = sqlFile.split('/').filter(b => b.trim().length > 0);
+    // Split by '/' only when it is on its own line (with optional trailing spaces/newlines)
+    const blocks = sqlFile.split(/\r?\n\/\s*(?:\r?\n|$)/).filter(b => b.trim().length > 0);
 
     for (let block of blocks) {
       block = block.trim();

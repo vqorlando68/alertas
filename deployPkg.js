@@ -25,7 +25,7 @@ async function runSQL() {
     connection = await pool.getConnection();
 
     const sqlFile = fs.readFileSync('pkgln_alertas.sql', 'utf-8');
-    const blocks = sqlFile.split('/').filter(b => b.trim().length > 0);
+    const blocks = sqlFile.split(/\r?\n\/\s*(?:\r?\n|$)/).filter(b => b.trim().length > 0);
 
     for (const block of blocks) {
       if (block.trim()) {

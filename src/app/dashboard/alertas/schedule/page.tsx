@@ -458,7 +458,7 @@ export default function ScheduleAlertPage() {
                   const tProc = selectedAlert?.TIPO_PROCESO || selectedAlert?.[2] || 'S';
                   const proc = selectedAlert?.PROCESO || selectedAlert?.[3] || '';
                   
-                  const isPLSQL = tProc.toUpperCase() === 'P' || tProc.toUpperCase() === 'PROCEDIMIENTO';
+                  const isPLSQL = ['P', 'PROCEDIMIENTO', 'F', 'FUNCION', 'FUNCIÓN'].includes(tProc.toUpperCase());
                   
                   return (
                   <div key={job.ID} className="flex flex-col items-stretch p-4 bg-[#050812] border border-[#1e293b] rounded-lg">

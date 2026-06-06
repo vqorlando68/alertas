@@ -326,7 +326,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
           v_repeat_eval := 'FREQ=DAILY'; 
       END IF;
 
-      IF UPPER(v_tipo_proceso) = 'P' OR UPPER(v_tipo_proceso) = 'PROCEDIMIENTO' THEN
+      IF UPPER(v_tipo_proceso) IN ('P', 'PROCEDIMIENTO', 'F', 'FUNCION', 'FUNCIÓN') THEN
           v_block_action := v_proceso;
           DBMS_SCHEDULER.CREATE_JOB (
               job_name        => v_job_name,
@@ -478,6 +478,140 @@ END;';
     COMMIT;
   END p_toggle_jobs_alerta;
 
+  -- Helper function to generate an HTML table from a JSON_ARRAY_T of objects
+  FUNCTION f_json_arr_to_html_table(p_arr IN JSON_ARRAY_T) RETURN CLOB IS
+    v_html CLOB := '';
+    v_keys JSON_KEY_LIST;
+    v_obj  JSON_OBJECT_T;
+    v_elem JSON_ELEMENT_T;
+    v_val  VARCHAR2(4000);
+  BEGIN
+    IF p_arr IS NULL OR p_arr.get_size = 0 THEN
+      RETURN '<p style="font-family: sans-serif;">No hay datos disponibles.</p>';
+    END IF;
+
+    -- Inspect the first element to get the column headers
+    v_elem := p_arr.get(0);
+    IF NOT v_elem.is_object THEN
+      v_html := '<table border="1" style="border-collapse: collapse; width: 100%; margin-bottom: 20px; font-family: sans-serif; font-size: 14px;">';
+      v_html := v_html || '<tr style="background-color: #f2f2f2;"><th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: bold;">Valor</th></tr>';
+      FOR i IN 0..p_arr.get_size - 1 LOOP
+        v_html := v_html || '<tr><td style="padding: 8px; border: 1px solid #ddd;">' || p_arr.get(i).to_string || '</td></tr>';
+      END LOOP;
+      v_html := v_html || '</table>';
+      RETURN v_html;
+    END IF;
+
+    v_obj := TREAT(v_elem AS JSON_OBJECT_T);
+    v_keys := v_obj.get_keys;
+
+    v_html := '<table border="1" style="border-collapse: collapse; width: 100%; margin-bottom: 20px; font-family: sans-serif; font-size: 14px;">';
+    v_html := v_html || '<tr style="background-color: #f2f2f2;">';
+    FOR i IN 1..v_keys.COUNT LOOP
+      v_html := v_html || '<th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: bold;">' || v_keys(i) || '</th>';
+    END LOOP;
+    v_html := v_html || '</tr>';
+
+    FOR i IN 0..p_arr.get_size - 1 LOOP
+      v_elem := p_arr.get(i);
+      IF v_elem.is_object THEN
+        v_obj := TREAT(v_elem AS JSON_OBJECT_T);
+        v_html := v_html || '<tr>';
+        FOR j IN 1..v_keys.COUNT LOOP
+          v_elem := v_obj.get(v_keys(j));
+          IF v_elem IS NULL OR v_elem.is_null THEN
+            v_val := '&nbsp;';
+          ELSIF v_elem.is_scalar THEN
+            v_val := v_obj.get_string(v_keys(j));
+            IF v_val IS NULL THEN
+               v_val := v_obj.get_number(v_keys(j));
+            END IF;
+            IF v_val IS NULL THEN
+               v_val := CASE WHEN v_obj.get_boolean(v_keys(j)) THEN 'True' WHEN NOT v_obj.get_boolean(v_keys(j)) THEN 'False' ELSE '' END;
+            END IF;
+            v_val := NVL(v_val, '&nbsp;');
+          ELSE
+            v_val := v_elem.to_string;
+          END IF;
+          v_html := v_html || '<td style="padding: 8px; border: 1px solid #ddd;">' || v_val || '</td>';
+        END LOOP;
+        v_html := v_html || '</tr>';
+      END IF;
+    END LOOP;
+    v_html := v_html || '</table>';
+    RETURN v_html;
+  END f_json_arr_to_html_table;
+
+  -- Helper function to parse JSON CLOB and convert to HTML supporting up to 3 levels
+  FUNCTION f_json_to_html(p_json_clob IN CLOB) RETURN CLOB IS
+    v_root_elem JSON_ELEMENT_T;
+    v_root_obj  JSON_OBJECT_T;
+    v_root_arr  JSON_ARRAY_T;
+    v_keys_l1   JSON_KEY_LIST;
+    v_keys_l2   JSON_KEY_LIST;
+    v_elem_l1   JSON_ELEMENT_T;
+    v_elem_l2   JSON_ELEMENT_T;
+    v_obj_l1    JSON_OBJECT_T;
+    v_html      CLOB := '';
+  BEGIN
+    IF p_json_clob IS NULL OR DBMS_LOB.GETLENGTH(p_json_clob) = 0 THEN
+      RETURN '<p style="font-family: sans-serif;">Sin datos (JSON vacío).</p>';
+    END IF;
+
+    v_root_elem := JSON_ELEMENT_T.parse(p_json_clob);
+    
+    -- Level 1: Root is a simple Array
+    IF v_root_elem.is_array THEN
+      v_root_arr := TREAT(v_root_elem AS JSON_ARRAY_T);
+      RETURN f_json_arr_to_html_table(v_root_arr);
+    END IF;
+
+    -- Level 1: Root is an Object
+    IF v_root_elem.is_object THEN
+      v_root_obj := TREAT(v_root_elem AS JSON_OBJECT_T);
+      v_keys_l1 := v_root_obj.get_keys;
+      
+      FOR i IN 1..v_keys_l1.COUNT LOOP
+        v_elem_l1 := v_root_obj.get(v_keys_l1(i));
+        
+        -- Level 1 Title
+        v_html := v_html || '<h2 style="color: #333; border-bottom: 2px solid #06b6d4; padding-bottom: 5px; margin-top: 25px; font-family: sans-serif;">' || v_keys_l1(i) || '</h2>';
+        
+        IF v_elem_l1.is_array THEN
+          -- Level 2: Array of objects
+          v_html := v_html || f_json_arr_to_html_table(TREAT(v_elem_l1 AS JSON_ARRAY_T));
+        ELSIF v_elem_l1.is_object THEN
+          -- Level 2: Object
+          v_obj_l1 := TREAT(v_elem_l1 AS JSON_OBJECT_T);
+          v_keys_l2 := v_obj_l1.get_keys;
+          
+          FOR j IN 1..v_keys_l2.COUNT LOOP
+            v_elem_l2 := v_obj_l1.get(v_keys_l2(j));
+            
+            -- Level 2 Title
+            v_html := v_html || '<h3 style="color: #666; margin-top: 15px; margin-bottom: 5px; font-family: sans-serif;">' || v_keys_l2(j) || '</h3>';
+            
+            IF v_elem_l2.is_array THEN
+              -- Level 3: Array of objects
+              v_html := v_html || f_json_arr_to_html_table(TREAT(v_elem_l2 AS JSON_ARRAY_T));
+            ELSIF v_elem_l2.is_object THEN
+              v_html := v_html || '<p style="font-family: sans-serif;">' || v_elem_l2.to_string || '</p>';
+            ELSE
+              v_html := v_html || '<p style="font-family: sans-serif;">' || v_obj_l1.get_string(v_keys_l2(j)) || '</p>';
+            END IF;
+          END LOOP;
+        ELSE
+          v_html := v_html || '<p style="font-family: sans-serif;">' || v_root_obj.get_string(v_keys_l1(i)) || '</p>';
+        END IF;
+      END LOOP;
+    END IF;
+
+    RETURN v_html;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RETURN '<p style="color: red; font-family: sans-serif;">Error al procesar JSON: ' || SQLERRM || '</p><pre>' || DBMS_LOB.SUBSTR(p_json_clob, 4000, 1) || '</pre>';
+  END f_json_to_html;
+
   -- ==========================================
   -- PROCESAR PROCESO (SQL Dinámico + Log + Email)
   -- ==========================================
@@ -493,7 +627,7 @@ END;';
     v_col_count          INTEGER;
     v_desc_tab           DBMS_SQL.DESC_TAB;
     v_val                VARCHAR2(4000);
-    v_log_html           CLOB := '<table border="1" style="border-collapse: collapse; width: 100%;">';
+    v_log_html           CLOB := '';
     v_has_rows           BOOLEAN := FALSE;
     v_p_body             CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
     v_p_body_html        CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
@@ -506,6 +640,7 @@ END;';
 
     -- Si el tipo de proceso es 'S' (Select o SQL)
     IF v_tipo_proceso = 'S' THEN
+      v_log_html := '<table border="1" style="border-collapse: collapse; width: 100%; font-family: sans-serif; font-size: 14px;">';
       v_cursor := DBMS_SQL.OPEN_CURSOR;
       
       BEGIN
@@ -520,7 +655,7 @@ END;';
         -- Encabezados de la tabla (primera fila)
         v_log_html := v_log_html || '<tr style="background-color: #f2f2f2;">';
         FOR i IN 1..v_col_count LOOP
-          v_log_html := v_log_html || '<th style="padding: 8px; border: 1px solid #ddd; text-align: left;">' || v_desc_tab(i).col_name || '</th>';
+          v_log_html := v_log_html || '<th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: bold;">' || v_desc_tab(i).col_name || '</th>';
         END LOOP;
         v_log_html := v_log_html || '</tr>';
 
@@ -576,9 +711,109 @@ END;';
           apex_mail.push_queue;
         END IF;
       END IF;
+
+    ELSIF v_tipo_proceso = 'P' OR v_tipo_proceso = 'PROCEDIMIENTO' THEN
+      DECLARE
+        v_json_salida CLOB;
+        v_sql         VARCHAR2(32767) := v_proceso;
+      BEGIN
+        -- Si v_proceso es solo un nombre de procedimiento, construimos la llamada
+        IF INSTR(v_sql, ':') = 0 THEN
+          v_sql := RTRIM(v_sql, ';');
+          v_sql := 'BEGIN ' || v_sql || '(p_json_salida => :p_json_salida); END;';
+        END IF;
+
+        -- Ejecutamos dinámicamente y obtenemos el CLOB de salida
+        EXECUTE IMMEDIATE v_sql USING OUT v_json_salida;
+
+        -- Convertimos el JSON obtenido a HTML
+        v_log_html := f_json_to_html(v_json_salida);
+
+        -- Si el JSON tiene contenido válido, guardamos e informamos
+        IF v_json_salida IS NOT NULL AND DBMS_LOB.GETLENGTH(v_json_salida) > 0 THEN
+          INSERT INTO tkr_log_alertas (
+            id, id_alerta, log, fecha, estado
+          ) VALUES (
+            tkr_log_alertas_seq.nextval, 
+            p_id_alerta, 
+            v_log_html, 
+            f_fecha_actual, 
+            'P'
+          );
+
+          -- Enviar correo con APEX_MAIL
+          IF v_correo IS NOT NULL THEN
+            v_p_body := 'Se ha detectado una alerta de procedimiento (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
+            v_p_body_html := '<h2>Alerta de Procedimiento Detectada</h2>' || 
+                             '<p>Se ha ejecutado el procedimiento de la alerta <b>' || p_id_alerta || ' - ' || v_descripcion_alerta || '</b> y se han obtenido los siguientes resultados:</p>' || 
+                             v_log_html;
+
+            apex_mail.send(
+              p_to       => v_correo,
+              p_from     => 'soporte@teker.co', 
+              p_body     => v_p_body,
+              p_body_html => v_p_body_html,
+              p_subj     => 'ALERTA: ' || p_id_alerta || ' - ' || SUBSTR(v_descripcion_alerta, 1, 50)
+            );
+            apex_mail.push_queue;
+          END IF;
+        END IF;
+      END;
+
+    ELSIF v_tipo_proceso = 'F' OR v_tipo_proceso = 'FUNCION' OR v_tipo_proceso = 'FUNCIÓN' THEN
+      DECLARE
+        v_json_salida CLOB;
+        v_sql         VARCHAR2(32767) := v_proceso;
+      BEGIN
+        -- Si v_proceso es solo un nombre de función, construimos la llamada de asignación
+        IF INSTR(v_sql, ':') = 0 AND INSTR(UPPER(v_sql), 'SELECT') = 0 AND INSTR(UPPER(v_sql), 'BEGIN') = 0 THEN
+          v_sql := RTRIM(v_sql, ';');
+          v_sql := 'BEGIN :v_json_salida := ' || v_sql || '; END;';
+        END IF;
+
+        -- Si es un SELECT de una función (ej. SELECT mi_funcion() FROM dual)
+        IF INSTR(UPPER(v_sql), 'SELECT') > 0 AND INSTR(v_sql, ':') = 0 THEN
+          v_sql := 'BEGIN EXECUTE IMMEDIATE ''' || REPLACE(v_sql, '''', '''''') || ''' INTO :v_json_salida; END;';
+        END IF;
+
+        -- Ejecutamos dinámicamente y obtenemos el CLOB retornado
+        EXECUTE IMMEDIATE v_sql USING OUT v_json_salida;
+
+        -- Convertimos el JSON obtenido a HTML
+        v_log_html := f_json_to_html(v_json_salida);
+
+        -- Si el JSON tiene contenido válido, guardamos e informamos
+        IF v_json_salida IS NOT NULL AND DBMS_LOB.GETLENGTH(v_json_salida) > 0 THEN
+          INSERT INTO tkr_log_alertas (
+            id, id_alerta, log, fecha, estado
+          ) VALUES (
+            tkr_log_alertas_seq.nextval, 
+            p_id_alerta, 
+            v_log_html, 
+            f_fecha_actual, 
+            'P'
+          );
+
+          -- Enviar correo con APEX_MAIL
+          IF v_correo IS NOT NULL THEN
+            v_p_body := 'Se ha detectado una alerta de función (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
+            v_p_body_html := '<h2>Alerta de Función Detectada</h2>' || 
+                             '<p>Se ha ejecutado la función de la alerta <b>' || p_id_alerta || ' - ' || v_descripcion_alerta || '</b> y se han obtenido los siguientes resultados:</p>' || 
+                             v_log_html;
+
+            apex_mail.send(
+              p_to       => v_correo,
+              p_from     => 'soporte@teker.co', 
+              p_body     => v_p_body,
+              p_body_html => v_p_body_html,
+              p_subj     => 'ALERTA: ' || p_id_alerta || ' - ' || SUBSTR(v_descripcion_alerta, 1, 50)
+            );
+            apex_mail.push_queue;
+          END IF;
+        END IF;
+      END;
     END IF;
 
-    
     COMMIT;
   EXCEPTION
     WHEN OTHERS THEN
