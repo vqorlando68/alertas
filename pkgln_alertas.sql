@@ -263,8 +263,8 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     SET 
       ESTADO = p_estado,
       ASIGNADO = p_asignado,
-      SOLUCIONADO = p_solucionado,
-      FECHA_SOLUCION = SYSDATE,
+      SOLUCIONADO = CASE WHEN p_estado = 'S' THEN p_solucionado ELSE NULL END,
+      FECHA_SOLUCION = CASE WHEN p_estado = 'S' THEN f_fecha_actual ELSE NULL END,
       COMENTARIOS_SOLUCION = p_comentarios_solucion
     WHERE ID = p_id_log;
     
