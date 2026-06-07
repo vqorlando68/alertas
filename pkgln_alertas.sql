@@ -323,6 +323,14 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
       v_proceso      VARCHAR2(4000);
       v_block_action VARCHAR2(4000);
       v_codigo_scheduler CLOB;
+      v_hour            VARCHAR2(10);
+      v_min             VARCHAR2(10);
+      v_time_suffix     VARCHAR2(100) := '';
+      v_days_eng        VARCHAR2(1000);
+      v_start_ts        TIMESTAMP;
+      v_start_tz        TIMESTAMP WITH TIME ZONE;
+      v_end_tz          TIMESTAMP WITH TIME ZONE := NULL;
+      v_exec_time       VARCHAR2(20);
   BEGIN
       SELECT TIPO_PROCESO, DBMS_LOB.SUBSTR(PROCESO, 4000, 1) INTO v_tipo_proceso, v_proceso 
       FROM TKR_ALERTAS 
@@ -334,16 +342,43 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
       
       v_job_name := 'scheduler_' || p_id_alerta || '_' || TO_CHAR(SYSDATE, 'YYMMDDHH24MISS');
 
+      v_exec_time := NVL(p_hora_ejecucion, '00:00');
+      IF INSTR(v_exec_time, ':') > 0 THEN
+          v_hour := LPAD(TRIM(SUBSTR(v_exec_time, 1, INSTR(v_exec_time, ':') - 1)), 2, '0');
+          v_min  := LPAD(TRIM(SUBSTR(v_exec_time, INSTR(v_exec_time, ':') + 1)), 2, '0');
+      ELSE
+          v_hour := '00';
+          v_min  := '00';
+      END IF;
+      IF NOT (REGEXP_LIKE(v_hour, '^[0-9]+$') AND REGEXP_LIKE(v_min, '^[0-9]+$')) THEN
+          v_hour := '00';
+          v_min  := '00';
+      END IF;
+      v_time_suffix := ';BYHOUR=' || TO_NUMBER(v_hour) || ';BYMINUTE=' || TO_NUMBER(v_min) || ';BYSECOND=0';
+
       IF UPPER(p_tipo_frecuencia) = 'DIARIO' THEN
-          v_repeat_eval := 'FREQ=DAILY; INTERVAL=' || p_repetir_cada;
+          v_repeat_eval := 'FREQ=DAILY; INTERVAL=' || p_repetir_cada || v_time_suffix;
       ELSIF UPPER(p_tipo_frecuencia) = 'MINUTOS' THEN
           v_repeat_eval := 'FREQ=MINUTELY; INTERVAL=' || p_repetir_cada;
       ELSIF UPPER(p_tipo_frecuencia) = 'SEMANAL' THEN
-          v_repeat_eval := 'FREQ=WEEKLY; BYDAY=' || p_dias_operacion || '; INTERVAL=' || p_repetir_cada;
+          v_days_eng := REPLACE(UPPER(p_dias_operacion), 'LUN', 'MON');
+          v_days_eng := REPLACE(v_days_eng, 'MAR', 'TUE');
+          v_days_eng := REPLACE(v_days_eng, 'MIE', 'WED');
+          v_days_eng := REPLACE(v_days_eng, 'JUE', 'THU');
+          v_days_eng := REPLACE(v_days_eng, 'VIE', 'FRI');
+          v_days_eng := REPLACE(v_days_eng, 'SAB', 'SAT');
+          v_days_eng := REPLACE(v_days_eng, 'DOM', 'SUN');
+          v_repeat_eval := 'FREQ=WEEKLY; BYDAY=' || v_days_eng || '; INTERVAL=' || p_repetir_cada || v_time_suffix;
       ELSIF UPPER(p_tipo_frecuencia) = 'MENSUAL' THEN
-          v_repeat_eval := 'FREQ=MONTHLY; INTERVAL=' || p_repetir_cada;
+          v_repeat_eval := 'FREQ=MONTHLY; INTERVAL=' || p_repetir_cada || v_time_suffix;
       ELSE
-          v_repeat_eval := 'FREQ=DAILY'; 
+          v_repeat_eval := 'FREQ=DAILY' || v_time_suffix; 
+      END IF;
+
+      v_start_ts := TO_TIMESTAMP(TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD') || ' ' || v_hour || ':' || v_min || ':00', 'YYYY-MM-DD HH24:MI:SS');
+      v_start_tz := FROM_TZ(v_start_ts, 'America/Bogota');
+      IF p_fecha_fin IS NOT NULL THEN
+          v_end_tz := FROM_TZ(TO_TIMESTAMP(TO_CHAR(p_fecha_fin, 'YYYY-MM-DD') || ' 23:59:59', 'YYYY-MM-DD HH24:MI:SS'), 'America/Bogota');
       END IF;
 
       IF UPPER(v_tipo_proceso) IN ('P', 'PROCEDIMIENTO', 'F', 'FUNCION', 'FUNCIÓN') THEN
@@ -352,9 +387,9 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
               job_name        => v_job_name,
               job_type        => 'PLSQL_BLOCK',
               job_action      => v_block_action,
-              start_date      => CAST(p_fecha_inicio AS TIMESTAMP),
+              start_date      => v_start_tz,
               repeat_interval => v_repeat_eval,
-              end_date        => p_fecha_fin,
+              end_date        => v_end_tz,
               enabled         => FALSE,
               comments        => 'Job programado para alerta PLSQL ID ' || p_id_alerta
           );
@@ -363,8 +398,11 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     job_name => ''' || v_job_name || ''',
     job_type => ''PLSQL_BLOCK'',
     job_action => ''' || REPLACE(v_block_action, '''', '''''') || ''',
-    start_date => TIMESTAMP ''' || TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD HH24:MI:SS') || ''',
-    repeat_interval => ''' || v_repeat_eval || ''',
+    start_date => FROM_TZ(TIMESTAMP ''' || TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD') || ' ' || v_hour || ':' || v_min || ':00'', ''America/Bogota''),
+    repeat_interval => ''' || v_repeat_eval || ''','
+    || CASE WHEN v_end_tz IS NOT NULL THEN '
+    end_date => FROM_TZ(TIMESTAMP ''' || TO_CHAR(p_fecha_fin, 'YYYY-MM-DD') || ' 23:59:59'', ''America/Bogota''),' ELSE '' END
+    || '
     enabled => TRUE
   );
 END;';
@@ -374,9 +412,9 @@ END;';
               job_type        => 'STORED_PROCEDURE',
               job_action      => 'pkgln_alertas.p_ejecutar_job',
               number_of_arguments => 1,
-              start_date      => CAST(p_fecha_inicio AS TIMESTAMP),
+              start_date      => v_start_tz,
               repeat_interval => v_repeat_eval,
-              end_date        => p_fecha_fin,
+              end_date        => v_end_tz,
               enabled         => FALSE,
               comments        => 'Job programado para alerta generica ID ' || p_id_alerta
           );
@@ -393,8 +431,11 @@ END;';
     job_type => ''STORED_PROCEDURE'',
     job_action => ''pkgln_alertas.p_ejecutar_job'',
     number_of_arguments => 1,
-    start_date => TIMESTAMP ''' || TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD HH24:MI:SS') || ''',
-    repeat_interval => ''' || v_repeat_eval || ''',
+    start_date => FROM_TZ(TIMESTAMP ''' || TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD') || ' ' || v_hour || ':' || v_min || ':00'', ''America/Bogota''),
+    repeat_interval => ''' || v_repeat_eval || ''','
+    || CASE WHEN v_end_tz IS NOT NULL THEN '
+    end_date => FROM_TZ(TIMESTAMP ''' || TO_CHAR(p_fecha_fin, 'YYYY-MM-DD') || ' 23:59:59'', ''America/Bogota''),' ELSE '' END
+    || '
     enabled => TRUE
   );
   DBMS_SCHEDULER.SET_JOB_ARGUMENT_VALUE(''' || v_job_name || ''', 1, ''' || TO_CHAR(p_id_alerta) || ''');
