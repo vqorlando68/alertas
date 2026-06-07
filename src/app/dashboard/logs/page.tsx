@@ -52,7 +52,7 @@ const isHtml = (str: string) => {
 }
 
 export default function LogsPage() {
-  const { t } = useApp()
+  const { t, theme } = useApp()
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [expandedRows, setExpandedRows] = React.useState<number[]>([])
@@ -89,7 +89,13 @@ export default function LogsPage() {
   const [editingLogViewMode, setEditingLogViewMode] = React.useState<'text' | 'html'>('text')
 
   React.useEffect(() => {
-    fetchLogs()
+    const queryParams = new URLSearchParams(window.location.search)
+    const initialAlertId = queryParams.get("id_alerta") || queryParams.get("alerta") || ""
+    if (initialAlertId) {
+      setSearchAlerta(initialAlertId)
+    }
+
+    fetchLogs(initialAlertId)
     // Fetch alerts list and jobs for the smart selector
     fetch("/api/alertas").then(r => r.json()).then(d => setAlertasList(d.alertas || []))
     fetch("/api/schedule").then(r => r.json()).then(d => {
@@ -97,13 +103,15 @@ export default function LogsPage() {
     })
   }, [])
 
-  const fetchLogs = async () => {
+  const fetchLogs = async (overrideIdAlert?: string) => {
     try {
       setLoading(true)
       const params = new URLSearchParams()
       if (fechaIni) params.append("fecha_ini", fechaIni)
       if (fechaFin) params.append("fecha_fin", fechaFin)
-      if (searchAlerta) params.append("id_alerta", searchAlerta)
+      
+      const alertIdToUse = overrideIdAlert !== undefined ? overrideIdAlert : searchAlerta
+      if (alertIdToUse) params.append("id_alerta", alertIdToUse)
       if (estadoFilter !== "Todas") params.append("estado", estadoFilter)
       
       const res = await fetch(`/api/logs?${params.toString()}`)
@@ -266,8 +274,8 @@ export default function LogsPage() {
                           <style>
                             body {
                               font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                              background-color: #050812;
-                              color: #cbd5e1;
+                              background-color: transparent;
+                              color: ${theme === 'light' ? '#04354d' : '#cbd5e1'};
                               margin: 0;
                               padding: 16px;
                               font-size: 13px;
@@ -276,42 +284,42 @@ export default function LogsPage() {
                               width: 100%;
                               border-collapse: collapse;
                               margin-bottom: 16px;
-                              border: 1px solid #1e293b;
+                              border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
                             }
                             th {
-                              background-color: #0f172a;
-                              color: #38bdf8;
+                              background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.1)' : '#0f172a'};
+                              color: ${theme === 'light' ? '#0177ab' : '#38bdf8'};
                               font-weight: 600;
                               text-align: left;
                               padding: 10px 12px;
-                              border: 1px solid #1e293b;
+                              border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
                               font-size: 11px;
                               text-transform: uppercase;
                               letter-spacing: 0.05em;
                             }
                             td {
                               padding: 10px 12px;
-                              border: 1px solid #1e293b;
+                              border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
                             }
                             tr:nth-child(even) {
-                              background-color: #0a0f1d;
+                              background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.04)' : '#0a0f1d'};
                             }
                             tr:hover {
-                              background-color: #0f172a;
+                              background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.08)' : '#0f172a'};
                             }
                             ::-webkit-scrollbar {
                               width: 8px;
                               height: 8px;
                             }
                             ::-webkit-scrollbar-track {
-                              background: #050812;
+                              background: transparent;
                             }
                             ::-webkit-scrollbar-thumb {
-                              background: #1e293b;
+                              background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.3)' : '#1e293b'};
                               border-radius: 4px;
                             }
                             ::-webkit-scrollbar-thumb:hover {
-                              background: #334155;
+                              background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.5)' : '#334155'};
                             }
                           </style>
                         </head>
@@ -675,8 +683,8 @@ export default function LogsPage() {
                                               <style>
                                                 body {
                                                   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                                                  background-color: #050812;
-                                                  color: #cbd5e1;
+                                                  background-color: transparent;
+                                                  color: ${theme === 'light' ? '#04354d' : '#cbd5e1'};
                                                   margin: 0;
                                                   padding: 12px;
                                                   font-size: 12px;
@@ -685,42 +693,42 @@ export default function LogsPage() {
                                                   width: 100%;
                                                   border-collapse: collapse;
                                                   margin-bottom: 12px;
-                                                  border: 1px solid #1e293b;
+                                                  border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
                                                 }
                                                 th {
-                                                  background-color: #0f172a;
-                                                  color: #38bdf8;
+                                                  background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.1)' : '#0f172a'};
+                                                  color: ${theme === 'light' ? '#0177ab' : '#38bdf8'};
                                                   font-weight: 600;
                                                   text-align: left;
                                                   padding: 8px 10px;
-                                                  border: 1px solid #1e293b;
+                                                  border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
                                                   font-size: 10px;
                                                   text-transform: uppercase;
                                                   letter-spacing: 0.05em;
                                                 }
                                                 td {
                                                   padding: 8px 10px;
-                                                  border: 1px solid #1e293b;
+                                                  border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
                                                 }
                                                 tr:nth-child(even) {
-                                                  background-color: #0a0f1d;
+                                                  background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.04)' : '#0a0f1d'};
                                                 }
                                                 tr:hover {
-                                                  background-color: #0f172a;
+                                                  background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.08)' : '#0f172a'};
                                                 }
                                                 ::-webkit-scrollbar {
                                                   width: 6px;
                                                   height: 6px;
                                                 }
                                                 ::-webkit-scrollbar-track {
-                                                  background: #050812;
+                                                  background: transparent;
                                                 }
                                                 ::-webkit-scrollbar-thumb {
-                                                  background: #1e293b;
+                                                  background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.3)' : '#1e293b'};
                                                   border-radius: 3px;
                                                 }
                                                 ::-webkit-scrollbar-thumb:hover {
-                                                  background: #334155;
+                                                  background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.5)' : '#334155'};
                                                 }
                                               </style>
                                             </head>
