@@ -381,51 +381,27 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
           v_end_tz := FROM_TZ(TO_TIMESTAMP(TO_CHAR(p_fecha_fin, 'YYYY-MM-DD') || ' 23:59:59', 'YYYY-MM-DD HH24:MI:SS'), 'America/Bogota');
       END IF;
 
-      IF UPPER(v_tipo_proceso) IN ('P', 'PROCEDIMIENTO', 'F', 'FUNCION', 'FUNCIÓN') THEN
-          v_block_action := v_proceso;
-          DBMS_SCHEDULER.CREATE_JOB (
-              job_name        => v_job_name,
-              job_type        => 'PLSQL_BLOCK',
-              job_action      => v_block_action,
-              start_date      => v_start_tz,
-              repeat_interval => v_repeat_eval,
-              end_date        => v_end_tz,
-              enabled         => FALSE,
-              comments        => 'Job programado para alerta PLSQL ID ' || p_id_alerta
-          );
-          v_codigo_scheduler := 'BEGIN
-  DBMS_SCHEDULER.CREATE_JOB(
-    job_name => ''' || v_job_name || ''',
-    job_type => ''PLSQL_BLOCK'',
-    job_action => ''' || REPLACE(v_block_action, '''', '''''') || ''',
-    start_date => FROM_TZ(TIMESTAMP ''' || TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD') || ' ' || v_hour || ':' || v_min || ':00'', ''America/Bogota''),
-    repeat_interval => ''' || v_repeat_eval || ''','
-    || CASE WHEN v_end_tz IS NOT NULL THEN '
-    end_date => FROM_TZ(TIMESTAMP ''' || TO_CHAR(p_fecha_fin, 'YYYY-MM-DD') || ' 23:59:59'', ''America/Bogota''),' ELSE '' END
-    || '
-    enabled => TRUE
-  );
-END;';
-      ELSE
-          DBMS_SCHEDULER.CREATE_JOB (
-              job_name        => v_job_name,
-              job_type        => 'STORED_PROCEDURE',
-              job_action      => 'pkgln_alertas.p_ejecutar_job',
-              number_of_arguments => 1,
-              start_date      => v_start_tz,
-              repeat_interval => v_repeat_eval,
-              end_date        => v_end_tz,
-              enabled         => FALSE,
-              comments        => 'Job programado para alerta generica ID ' || p_id_alerta
-          );
-          
-          DBMS_SCHEDULER.SET_JOB_ARGUMENT_VALUE (
-              job_name          => v_job_name,
-              argument_position => 1,
-              argument_value    => TO_CHAR(p_id_alerta)
-          );
-          
-          v_codigo_scheduler := 'BEGIN
+      -- Create STORED_PROCEDURE Job calling p_ejecutar_job for all alerts (SQL, Procedures, and Functions)
+      -- This avoids PL/SQL block syntax issues for dynamic functions and ensures full logging and email sending.
+      DBMS_SCHEDULER.CREATE_JOB (
+          job_name        => v_job_name,
+          job_type        => 'STORED_PROCEDURE',
+          job_action      => 'pkgln_alertas.p_ejecutar_job',
+          number_of_arguments => 1,
+          start_date      => v_start_tz,
+          repeat_interval => v_repeat_eval,
+          end_date        => v_end_tz,
+          enabled         => FALSE,
+          comments        => 'Job programado para alerta ID ' || p_id_alerta
+      );
+      
+      DBMS_SCHEDULER.SET_JOB_ARGUMENT_VALUE (
+          job_name          => v_job_name,
+          argument_position => 1,
+          argument_value    => TO_CHAR(p_id_alerta)
+      );
+      
+      v_codigo_scheduler := 'BEGIN
   DBMS_SCHEDULER.CREATE_JOB(
     job_name => ''' || v_job_name || ''',
     job_type => ''STORED_PROCEDURE'',
@@ -440,7 +416,6 @@ END;';
   );
   DBMS_SCHEDULER.SET_JOB_ARGUMENT_VALUE(''' || v_job_name || ''', 1, ''' || TO_CHAR(p_id_alerta) || ''');
 END;';
-      END IF;
       
       DBMS_SCHEDULER.ENABLE(v_job_name);
 
@@ -468,22 +443,8 @@ END;';
     p_id_alerta IN VARCHAR2
   ) IS
   BEGIN
-    -- Aquí corre la lógica del motor cuando salta el cron.
-    -- Por defecto crearemos un log que diga que se ejecutó automáticamente
-    INSERT INTO TKR_LOG_ALERTAS (
-      ID, ID_ALERTA, LOG, FECHA, ESTADO, ASIGNADO
-    ) VALUES (
-      NVL((SELECT MAX(ID) FROM TKR_LOG_ALERTAS), 0) + 1,
-      TO_NUMBER(p_id_alerta),
-      'Ejecución automática de Job iniciada vía Oracle Scheduler.',
-      SYSDATE,
-      'P',
-      'SYSTEM'
-    );
-    COMMIT;
-  EXCEPTION
-    WHEN OTHERS THEN
-       ROLLBACK;
+    -- Ejecutamos la lógica de la alerta (Select, Procedimiento o Función)
+    p_procesar_proceso(TO_NUMBER(p_id_alerta));
   END p_ejecutar_job;
 
   -- ==========================================
