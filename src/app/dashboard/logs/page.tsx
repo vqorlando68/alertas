@@ -514,7 +514,7 @@ export default function LogsPage() {
           </select>
         </div>
         <div className="w-full lg:w-auto pt-2 lg:pt-0">
-          <Button onClick={fetchLogs} className="w-full lg:w-32 bg-[#06b6d4] hover:bg-[#0891b2] text-black font-bold h-10 shadow-lg shadow-[#06b6d4]/20 rounded-md">
+          <Button onClick={() => fetchLogs()} className="w-full lg:w-32 bg-[#06b6d4] hover:bg-[#0891b2] text-black font-bold h-10 shadow-lg shadow-[#06b6d4]/20 rounded-md">
             <Search className="w-4 h-4 mr-2" /> {t("common.filter")}
           </Button>
         </div>
