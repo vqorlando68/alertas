@@ -67,20 +67,27 @@ CREATE OR REPLACE PACKAGE pkgln_alertas AS
   );
 
   -- Actualiza el estado y solucion de un log (resolucion de incidente)
+  -- MODIFICADO: reemplaza p_asignado (texto) por p_id_persona_asignada (NUMBER)
   PROCEDURE p_save_log_solucion (
     p_id_log               IN NUMBER,
     p_estado               IN VARCHAR2,
-    p_asignado             IN VARCHAR2,
+    p_id_persona_asignada  IN NUMBER,
     p_solucionado          IN VARCHAR2,
     p_comentarios_solucion IN CLOB
   );
 
   -- Obtiene todos los logs con filtros (ID de alerta, estado, fechas)
+  -- MODIFICADO: retorna ID_PERSONA_ASIGNADA y NOMBRE_ASIGNADO
   PROCEDURE p_get_all_logs (
     p_id_alerta IN NUMBER DEFAULT NULL,
     p_estado    IN VARCHAR2 DEFAULT NULL,
     p_fecha_ini IN DATE DEFAULT NULL,
     p_fecha_fin IN DATE DEFAULT NULL,
+    p_resultado OUT cur_type
+  );
+
+  -- Obtiene usuarios asignables (rol 13)
+  PROCEDURE p_get_usuarios_asignables (
     p_resultado OUT cur_type
   );
 
@@ -142,7 +149,6 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
       ORDER BY ID DESC;
   EXCEPTION
     WHEN OTHERS THEN
-      -- Considera regitrar el error en un log del sistema si aplica
       RAISE_APPLICATION_ERROR(-20001, 'Error en p_get_alertas: ' || SQLERRM);
   END p_get_alertas;
 
@@ -166,7 +172,6 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     v_id NUMBER;
   BEGIN
     IF p_id IS NULL THEN
-      -- Simulamos un sequence o se podria usar NEXTVAL si existe uno: ej. tkr_alertas_seq.NEXTVAL
       SELECT NVL(MAX(ID), 0) + 1 INTO v_id FROM TKR_ALERTAS;
       
       INSERT INTO TKR_ALERTAS (
@@ -176,7 +181,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
       ) VALUES (
         v_id, p_descripcion_alerta, p_tipo_proceso, p_proceso, p_frecuencia, 
         p_estado, p_pasos_a_seguir, p_correo, p_telefono, p_prioridad,
-        SYSDATE, p_usuario
+        f_fecha_actual, p_usuario
       );
       
       p_new_id := v_id;
@@ -192,7 +197,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
         CORREO             = p_correo,
         TELEFONO           = p_telefono,
         PRIORIDAD          = p_prioridad,
-        FECHA_MODIFICACION = SYSDATE,
+        FECHA_MODIFICACION = f_fecha_actual,
         MODIFICADO_POR     = p_usuario
       WHERE ID = p_id;
       
@@ -214,10 +219,9 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     p_usuario IN  VARCHAR2
   ) IS
   BEGIN
-    -- Preferimos baja logica
     UPDATE TKR_ALERTAS
     SET ESTADO = 'I',
-        FECHA_MODIFICACION = SYSDATE,
+        FECHA_MODIFICACION = f_fecha_actual,
         MODIFICADO_POR = p_usuario
     WHERE ID = p_id;
     
@@ -250,25 +254,153 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
 
   -- ==========================================
   -- SAVE LOG SOLUCION
+  -- MODIFICADO: usa ID_PERSONA_ASIGNADA en lugar de ASIGNADO (texto libre)
+  --             registra auditoría en COMENTARIOS_SOLUCION al cambiar estado/asignado
+  --             envía correo al asignado cuando estado = 'A'
   -- ==========================================
   PROCEDURE p_save_log_solucion (
     p_id_log               IN NUMBER,
     p_estado               IN VARCHAR2,
-    p_asignado             IN VARCHAR2,
+    p_id_persona_asignada  IN NUMBER,
     p_solucionado          IN VARCHAR2,
     p_comentarios_solucion IN CLOB
   ) IS
+    v_nombre_asignado    VARCHAR2(500);
+    v_correo_asignado    VARCHAR2(500);
+    v_auditoria          VARCHAR2(2000);
+    v_log_estado_prev    VARCHAR2(4000);
+    v_log_estado_nuevo   VARCHAR2(4000);
+    v_comentarios_prev   CLOB;
+    v_comentarios_nuevo  CLOB;
+    v_descripcion_alerta VARCHAR2(4000);
+    v_id_alerta          NUMBER;
+    v_p_body             CLOB;
+    v_p_body_html        CLOB;
   BEGIN
+    -- Obtener datos del log, la alerta, LOG_ESTADO previo y COMENTARIOS_SOLUCION previo
+    SELECT L.ID_ALERTA, A.DESCRIPCION_ALERTA, L.LOG_ESTADO, L.COMENTARIOS_SOLUCION
+      INTO v_id_alerta, v_descripcion_alerta, v_log_estado_prev, v_comentarios_prev
+      FROM TKR_LOG_ALERTAS L, TKR_ALERTAS A
+     WHERE L.ID = p_id_log
+       AND A.ID = L.ID_ALERTA;
+
+    -- Si se indica persona asignada, obtener nombre y correo
+    IF p_id_persona_asignada IS NOT NULL THEN
+      BEGIN
+        SELECT nombres || ' ' || apellidos, correo_electronico
+          INTO v_nombre_asignado, v_correo_asignado
+          FROM tkr_usuarios
+         WHERE id = p_id_persona_asignada;
+      EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+          v_nombre_asignado := 'Usuario ' || p_id_persona_asignada;
+          v_correo_asignado := NULL;
+      END;
+    END IF;
+
+    -- Construir nueva entrada de auditoría para LOG_ESTADO
+    IF p_estado = 'A' AND p_id_persona_asignada IS NOT NULL THEN
+      v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
+                  || 'Asignado a: ' || v_nombre_asignado
+                  || ' | Por: ' || p_solucionado;
+    ELSIF p_estado = 'S' THEN
+      v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
+                  || 'Solucionado por: ' || p_solucionado;
+    ELSIF p_estado = 'P' THEN
+      v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
+                  || 'Regresado a Pendiente por: ' || p_solucionado;
+    END IF;
+
+    -- Acumular entradas de auditoría en LOG_ESTADO (VARCHAR2 4000)
+    IF v_auditoria IS NOT NULL THEN
+      IF v_log_estado_prev IS NOT NULL AND LENGTH(v_log_estado_prev) > 0 THEN
+        v_log_estado_nuevo := SUBSTR(v_log_estado_prev || CHR(10) || v_auditoria, 1, 4000);
+      ELSE
+        v_log_estado_nuevo := v_auditoria;
+      END IF;
+    ELSE
+      v_log_estado_nuevo := v_log_estado_prev;
+    END IF;
+
+    -- Construir COMENTARIOS_SOLUCION: siempre acumulativo, nunca sobreescribir
+    -- Si ya hay contenido previo de otro usuario, se adiciona el nuevo texto al final
+    IF p_comentarios_solucion IS NOT NULL AND DBMS_LOB.GETLENGTH(p_comentarios_solucion) > 0 THEN
+      IF v_comentarios_prev IS NOT NULL AND DBMS_LOB.GETLENGTH(v_comentarios_prev) > 0 THEN
+        -- Ya existe texto: adicionar separador + nuevo texto
+        v_comentarios_nuevo := v_comentarios_prev
+                            || CHR(10) || '---' || CHR(10)
+                            || p_comentarios_solucion;
+      ELSE
+        -- No había texto previo: usar el nuevo directamente
+        v_comentarios_nuevo := p_comentarios_solucion;
+      END IF;
+    ELSE
+      -- No se envió texto nuevo: conservar el existente sin cambios
+      v_comentarios_nuevo := v_comentarios_prev;
+    END IF;
+
+    -- Actualizar el log
+    -- COMENTARIOS_SOLUCION: acumulativo (append), nunca sobreescribe texto previo
+    -- LOG_ESTADO: auditoría de cambios de estado/asignación
     UPDATE TKR_LOG_ALERTAS
     SET 
-      ESTADO = p_estado,
-      ASIGNADO = p_asignado,
-      SOLUCIONADO = CASE WHEN p_estado = 'S' THEN p_solucionado ELSE NULL END,
-      FECHA_SOLUCION = CASE WHEN p_estado = 'S' THEN f_fecha_actual ELSE NULL END,
-      COMENTARIOS_SOLUCION = p_comentarios_solucion
+      ESTADO                = p_estado,
+      ID_PERSONA_ASIGNADA   = p_id_persona_asignada,
+      SOLUCIONADO           = CASE WHEN p_estado = 'S' THEN p_solucionado ELSE NULL END,
+      FECHA_SOLUCION        = CASE WHEN p_estado = 'S' THEN f_fecha_actual ELSE NULL END,
+      COMENTARIOS_SOLUCION  = v_comentarios_nuevo,
+      LOG_ESTADO            = v_log_estado_nuevo
     WHERE ID = p_id_log;
-    
+
     COMMIT;
+
+    -- Enviar correo al asignado si estado = 'A' y tiene correo
+    IF p_estado = 'A' AND v_correo_asignado IS NOT NULL THEN
+      v_p_body := 'Estimado/a ' || v_nombre_asignado || ','
+               || CHR(10) || CHR(10)
+               || 'Se le ha asignado la atención del siguiente incidente en el sistema de Alertas:'
+               || CHR(10)
+               || 'Alerta: ' || v_descripcion_alerta
+               || CHR(10)
+               || 'Log ID: ' || p_id_log
+               || CHR(10)
+               || 'Fecha de asignación: ' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS')
+               || CHR(10) || CHR(10)
+               || 'Por favor ingrese al sistema para atender este incidente.'
+               || CHR(10) || CHR(10)
+               || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.';
+
+      v_p_body_html := '<div style="font-family: sans-serif; font-size: 14px; color: #333; max-width: 600px;">'
+        || '<div style="background-color: #0b101e; padding: 20px; border-radius: 8px 8px 0 0;">'
+        || '<h1 style="color: #ff5a1f; margin: 0; font-size: 20px;">&#9888; Incidente Asignado</h1>'
+        || '</div>'
+        || '<div style="background-color: #f8f9fa; padding: 24px; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px;">'
+        || '<p>Estimado/a <strong>' || v_nombre_asignado || '</strong>,</p>'
+        || '<p>Se le ha asignado la atención del siguiente incidente:</p>'
+        || '<table style="width:100%; border-collapse: collapse; margin: 16px 0;">'
+        || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold; width:140px;">Alerta:</td>'
+        || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || v_descripcion_alerta || '</td></tr>'
+        || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Log ID:</td>'
+        || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || p_id_log || '</td></tr>'
+        || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Asignado por:</td>'
+        || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || p_solucionado || '</td></tr>'
+        || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Fecha:</td>'
+        || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS') || '</td></tr>'
+        || '</table>'
+        || '<p style="color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #dee2e6; padding-top: 12px;">'
+        || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.</p>'
+        || '</div></div>';
+
+      apex_mail.send(
+        p_to        => v_correo_asignado,
+        p_from      => 'soporte@teker.co',
+        p_body      => v_p_body,
+        p_body_html => v_p_body_html,
+        p_subj      => 'Incidente Asignado: ' || v_descripcion_alerta || ' [Log #' || p_id_log || ']'
+      );
+      apex_mail.push_queue;
+    END IF;
+
   EXCEPTION
     WHEN OTHERS THEN
       ROLLBACK;
@@ -277,6 +409,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
 
   -- ==========================================
   -- GET ALL LOGS
+  -- MODIFICADO: retorna ID_PERSONA_ASIGNADA y NOMBRE_ASIGNADO (sintaxis clásica Oracle)
   -- ==========================================
   PROCEDURE p_get_all_logs (
     p_id_alerta IN NUMBER DEFAULT NULL,
@@ -288,12 +421,25 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
   BEGIN
     OPEN p_resultado FOR
       SELECT 
-        L.ID, L.ID_ALERTA, A.DESCRIPCION_ALERTA, L.LOG, L.FECHA, 
-        L.ESTADO, L.ASIGNADO, L.SOLUCIONADO, L.FECHA_SOLUCION, 
-        L.COMENTARIOS_SOLUCION, A.PASOS_A_SEGUIR
-      FROM TKR_LOG_ALERTAS L
-      JOIN TKR_ALERTAS A ON L.ID_ALERTA = A.ID
-      WHERE (p_id_alerta IS NULL OR L.ID_ALERTA = p_id_alerta)
+        L.ID,
+        L.ID_ALERTA,
+        A.DESCRIPCION_ALERTA,
+        L.LOG,
+        L.FECHA,
+        L.ESTADO,
+        L.ID_PERSONA_ASIGNADA,
+        (SELECT U.NOMBRES || ' ' || U.APELLIDOS
+           FROM TKR_USUARIOS U
+          WHERE U.ID = L.ID_PERSONA_ASIGNADA) AS NOMBRE_ASIGNADO,
+        L.SOLUCIONADO,
+        L.FECHA_SOLUCION,
+        L.COMENTARIOS_SOLUCION,
+        L.LOG_ESTADO,
+        A.PASOS_A_SEGUIR
+      FROM TKR_LOG_ALERTAS L,
+           TKR_ALERTAS A
+      WHERE L.ID_ALERTA = A.ID
+        AND (p_id_alerta IS NULL OR L.ID_ALERTA = p_id_alerta)
         AND (p_estado IS NULL OR L.ESTADO = p_estado)
         AND (p_fecha_ini IS NULL OR L.FECHA >= p_fecha_ini)
         AND (p_fecha_fin IS NULL OR L.FECHA <= p_fecha_fin + 1)
@@ -302,6 +448,28 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     WHEN OTHERS THEN
       RAISE_APPLICATION_ERROR(-20006, 'Error en p_get_all_logs: ' || SQLERRM);
   END p_get_all_logs;
+
+  -- ==========================================
+  -- GET USUARIOS ASIGNABLES (rol 13)
+  -- ==========================================
+  PROCEDURE p_get_usuarios_asignables (
+    p_resultado OUT cur_type
+  ) IS
+  BEGIN
+    OPEN p_resultado FOR
+      SELECT U.ID, U.NOMBRES || ' ' || U.APELLIDOS NOMBRE_COMPLETO
+        FROM TKR_USUARIOS U
+       WHERE EXISTS (
+               SELECT 1
+                 FROM TKR_ROLES_USUARIO RU
+                WHERE U.ID = RU.ID_USUARIO
+                  AND RU.ID_ROL = 13
+             )
+       ORDER BY 2;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20007, 'Error en p_get_usuarios_asignables: ' || SQLERRM);
+  END p_get_usuarios_asignables;
 
   -- ==========================================
   -- SAVE PROGRAMACION (SCHEDULER ENGINE)
@@ -340,7 +508,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
       FROM TKR_PROGRAMACION_ALERTAS 
       WHERE ID_ALERTA = p_id_alerta;
       
-      v_job_name := 'scheduler_' || p_id_alerta || '_' || TO_CHAR(SYSDATE, 'YYMMDDHH24MISS');
+      v_job_name := 'scheduler_' || p_id_alerta || '_' || TO_CHAR(f_fecha_actual, 'YYMMDDHH24MISS');
 
       v_exec_time := NVL(p_hora_ejecucion, '00:00');
       IF INSTR(v_exec_time, ':') > 0 THEN
@@ -381,8 +549,6 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
           v_end_tz := FROM_TZ(TO_TIMESTAMP(TO_CHAR(p_fecha_fin, 'YYYY-MM-DD') || ' 23:59:59', 'YYYY-MM-DD HH24:MI:SS'), 'America/Bogota');
       END IF;
 
-      -- Create STORED_PROCEDURE Job calling p_ejecutar_job for all alerts (SQL, Procedures, and Functions)
-      -- This avoids PL/SQL block syntax issues for dynamic functions and ensures full logging and email sending.
       DBMS_SCHEDULER.CREATE_JOB (
           job_name        => v_job_name,
           job_type        => 'STORED_PROCEDURE',
@@ -443,7 +609,6 @@ END;';
     p_id_alerta IN VARCHAR2
   ) IS
   BEGIN
-    -- Ejecutamos la lógica de la alerta (Select, Procedimiento o Función)
     p_procesar_proceso(TO_NUMBER(p_id_alerta));
   END p_ejecutar_job;
 
@@ -461,7 +626,6 @@ END;';
       DBMS_SCHEDULER.DROP_JOB(job_name => v_job_name, force => TRUE);
     EXCEPTION
       WHEN OTHERS THEN
-         -- Si el job no existe en Oracle, continuamos con el borrado de la tabla
          NULL;
     END;
 
@@ -512,7 +676,6 @@ END;';
       RETURN '<p style="font-family: sans-serif;">No hay datos disponibles.</p>';
     END IF;
 
-    -- Inspect the first element to get the column headers
     v_elem := p_arr.get(0);
     IF NOT v_elem.is_object THEN
       v_html := '<table border="1" style="border-collapse: collapse; width: 100%; margin-bottom: 20px; font-family: sans-serif; font-size: 14px;">';
@@ -582,13 +745,11 @@ END;';
 
     v_root_elem := JSON_ELEMENT_T.parse(p_json_clob);
     
-    -- Level 1: Root is a simple Array
     IF v_root_elem.is_array THEN
       v_root_arr := TREAT(v_root_elem AS JSON_ARRAY_T);
       RETURN f_json_arr_to_html_table(v_root_arr);
     END IF;
 
-    -- Level 1: Root is an Object
     IF v_root_elem.is_object THEN
       v_root_obj := TREAT(v_root_elem AS JSON_OBJECT_T);
       v_keys_l1 := v_root_obj.get_keys;
@@ -596,25 +757,20 @@ END;';
       FOR i IN 1..v_keys_l1.COUNT LOOP
         v_elem_l1 := v_root_obj.get(v_keys_l1(i));
         
-        -- Level 1 Title
         v_html := v_html || '<h2 style="color: #333; border-bottom: 2px solid #06b6d4; padding-bottom: 5px; margin-top: 25px; font-family: sans-serif;">' || v_keys_l1(i) || '</h2>';
         
         IF v_elem_l1.is_array THEN
-          -- Level 2: Array of objects
           v_html := v_html || f_json_arr_to_html_table(TREAT(v_elem_l1 AS JSON_ARRAY_T));
         ELSIF v_elem_l1.is_object THEN
-          -- Level 2: Object
           v_obj_l1 := TREAT(v_elem_l1 AS JSON_OBJECT_T);
           v_keys_l2 := v_obj_l1.get_keys;
           
           FOR j IN 1..v_keys_l2.COUNT LOOP
             v_elem_l2 := v_obj_l1.get(v_keys_l2(j));
             
-            -- Level 2 Title
             v_html := v_html || '<h3 style="color: #666; margin-top: 15px; margin-bottom: 5px; font-family: sans-serif;">' || v_keys_l2(j) || '</h3>';
             
             IF v_elem_l2.is_array THEN
-              -- Level 3: Array of objects
               v_html := v_html || f_json_arr_to_html_table(TREAT(v_elem_l2 AS JSON_ARRAY_T));
             ELSIF v_elem_l2.is_object THEN
               v_html := v_html || '<p style="font-family: sans-serif;">' || v_elem_l2.to_string || '</p>';
@@ -651,16 +807,14 @@ END;';
     v_val                VARCHAR2(4000);
     v_log_html           CLOB := '';
     v_has_rows           BOOLEAN := FALSE;
-    v_p_body             CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
-    v_p_body_html        CLOB; -- Agregado para evitar ambigüedad en apex_mail.send
+    v_p_body             CLOB;
+    v_p_body_html        CLOB;
   BEGIN
-    -- Obtenemos configuración de la alerta
     SELECT tipo_proceso, proceso, correo, descripcion_alerta 
       INTO v_tipo_proceso, v_proceso, v_correo, v_descripcion_alerta
     FROM tkr_alertas 
     WHERE id = p_id_alerta;
 
-    -- Si el tipo de proceso es 'S' (Select o SQL)
     IF v_tipo_proceso = 'S' THEN
       v_log_html := '<table border="1" style="border-collapse: collapse; width: 100%; font-family: sans-serif; font-size: 14px;">';
       v_cursor := DBMS_SQL.OPEN_CURSOR;
@@ -669,12 +823,10 @@ END;';
         DBMS_SQL.PARSE(v_cursor, v_proceso, DBMS_SQL.NATIVE);
         DBMS_SQL.DESCRIBE_COLUMNS(v_cursor, v_col_count, v_desc_tab);
 
-        -- Definimos columnas como VARCHAR2 para simplificar lectura genérica
         FOR i IN 1..v_col_count LOOP
            DBMS_SQL.DEFINE_COLUMN(v_cursor, i, v_val, 4000);
         END LOOP;
 
-        -- Encabezados de la tabla (primera fila)
         v_log_html := v_log_html || '<tr style="background-color: #f2f2f2;">';
         FOR i IN 1..v_col_count LOOP
           v_log_html := v_log_html || '<th style="padding: 8px; border: 1px solid #ddd; text-align: left; font-weight: bold;">' || v_desc_tab(i).col_name || '</th>';
@@ -704,7 +856,6 @@ END;';
           RAISE;
       END;
 
-      -- Si arrojó datos, guardamos en log y enviamos correo
       IF v_has_rows THEN
         INSERT INTO tkr_log_alertas (
           id, id_alerta, log, fecha, estado
@@ -716,7 +867,6 @@ END;';
           'P'
         );
 
-        -- Enviar correo con APEX_MAIL
         IF v_correo IS NOT NULL THEN
           v_p_body := 'Se ha detectado una alerta (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
           v_p_body_html := '<h2>Alerta Detectada</h2>' || 
@@ -739,19 +889,15 @@ END;';
         v_json_salida CLOB;
         v_sql         VARCHAR2(32767) := v_proceso;
       BEGIN
-        -- Si v_proceso es solo un nombre de procedimiento, construimos la llamada
         IF INSTR(v_sql, ':') = 0 THEN
           v_sql := RTRIM(v_sql, ';');
           v_sql := 'BEGIN ' || v_sql || '(p_json_salida => :p_json_salida); END;';
         END IF;
 
-        -- Ejecutamos dinámicamente y obtenemos el CLOB de salida
         EXECUTE IMMEDIATE v_sql USING OUT v_json_salida;
 
-        -- Convertimos el JSON obtenido a HTML
         v_log_html := f_json_to_html(v_json_salida);
 
-        -- Si el JSON tiene contenido válido, guardamos e informamos
         IF v_json_salida IS NOT NULL AND DBMS_LOB.GETLENGTH(v_json_salida) > 0 THEN
           INSERT INTO tkr_log_alertas (
             id, id_alerta, log, fecha, estado
@@ -763,7 +909,6 @@ END;';
             'P'
           );
 
-          -- Enviar correo con APEX_MAIL
           IF v_correo IS NOT NULL THEN
             v_p_body := 'Se ha detectado una alerta de procedimiento (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
             v_p_body_html := '<h2>Alerta de Procedimiento Detectada</h2>' || 
@@ -787,24 +932,19 @@ END;';
         v_json_salida CLOB;
         v_sql         VARCHAR2(32767) := v_proceso;
       BEGIN
-        -- Si v_proceso es solo un nombre de función, construimos la llamada de asignación
         IF INSTR(v_sql, ':') = 0 AND INSTR(UPPER(v_sql), 'SELECT') = 0 AND INSTR(UPPER(v_sql), 'BEGIN') = 0 THEN
           v_sql := RTRIM(v_sql, ';');
           v_sql := 'BEGIN :v_json_salida := ' || v_sql || '; END;';
         END IF;
 
-        -- Si es un SELECT de una función (ej. SELECT mi_funcion() FROM dual)
         IF INSTR(UPPER(v_sql), 'SELECT') > 0 AND INSTR(v_sql, ':') = 0 THEN
           v_sql := 'BEGIN EXECUTE IMMEDIATE ''' || REPLACE(v_sql, '''', '''''') || ''' INTO :v_json_salida; END;';
         END IF;
 
-        -- Ejecutamos dinámicamente y obtenemos el CLOB retornado
         EXECUTE IMMEDIATE v_sql USING OUT v_json_salida;
 
-        -- Convertimos el JSON obtenido a HTML
         v_log_html := f_json_to_html(v_json_salida);
 
-        -- Si el JSON tiene contenido válido, guardamos e informamos
         IF v_json_salida IS NOT NULL AND DBMS_LOB.GETLENGTH(v_json_salida) > 0 THEN
           INSERT INTO tkr_log_alertas (
             id, id_alerta, log, fecha, estado
@@ -816,7 +956,6 @@ END;';
             'P'
           );
 
-          -- Enviar correo con APEX_MAIL
           IF v_correo IS NOT NULL THEN
             v_p_body := 'Se ha detectado una alerta de función (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
             v_p_body_html := '<h2>Alerta de Función Detectada</h2>' || 

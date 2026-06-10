@@ -24,7 +24,7 @@ import {
   ArrowLeft,
   ShieldAlert,
   Eye,
-  Code
+  UserCheck
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -39,16 +39,52 @@ type LogEntry = {
   LOG: string
   FECHA: string
   ESTADO: string
-  ASIGNADO: string
+  ID_PERSONA_ASIGNADA: number | null
+  NOMBRE_ASIGNADO: string
   SOLUCIONADO: string
   FECHA_SOLUCION: string
   COMENTARIOS_SOLUCION: string
+  LOG_ESTADO: string
   PASOS_A_SEGUIR: string
+}
+
+type UsuarioAsignable = {
+  id: number
+  nombre_completo: string
 }
 
 const isHtml = (str: string) => {
   if (!str) return false
   return /<[a-z][\s\S]*>/i.test(str)
+}
+
+const getEstadoBadge = (estado: string) => {
+  switch (estado) {
+    case "P":
+      return {
+        label: "Pendiente",
+        classes: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+        dot: "bg-orange-500",
+      }
+    case "A":
+      return {
+        label: "Asignado",
+        classes: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+        dot: "bg-blue-400",
+      }
+    case "S":
+      return {
+        label: "Solucionado",
+        classes: "bg-green-500/10 text-green-500 border-green-500/20",
+        dot: "bg-green-500",
+      }
+    default:
+      return {
+        label: estado,
+        classes: "bg-slate-500/10 text-slate-400 border-slate-500/20",
+        dot: "bg-slate-400",
+      }
+  }
 }
 
 export default function LogsPage() {
@@ -57,7 +93,7 @@ export default function LogsPage() {
   const [loading, setLoading] = React.useState(true)
   const [expandedRows, setExpandedRows] = React.useState<number[]>([])
   
-  // Expanded rows view modes: Record<number, 'text' | 'html'>
+  // Expanded rows view modes: solo para HTML si aplica
   const [rowViewModes, setRowViewModes] = React.useState<Record<number, 'text' | 'html'>>({})
   
   const getRowViewMode = (logId: number, logContent: string): 'text' | 'html' => {
@@ -84,9 +120,13 @@ export default function LogsPage() {
   // Edit Solucion
   const [editingLog, setEditingLog] = React.useState<LogEntry | null>(null)
   const [editEstado, setEditEstado] = React.useState("P")
-  const [editAsignado, setEditAsignado] = React.useState("")
-  const [editSolucion, setEditSolucion] = React.useState("")
+  const [editIdPersonaAsignada, setEditIdPersonaAsignada] = React.useState<number | null>(null)
+  const [editSolucion, setEditSolucion] = React.useState("") // Solo texto NUEVO a agregar
   const [editingLogViewMode, setEditingLogViewMode] = React.useState<'text' | 'html'>('text')
+  const [saveError, setSaveError] = React.useState("")
+
+  // Usuarios asignables (rol 13)
+  const [usuariosAsignables, setUsuariosAsignables] = React.useState<UsuarioAsignable[]>([])
 
   React.useEffect(() => {
     const queryParams = new URLSearchParams(window.location.search)
@@ -101,6 +141,8 @@ export default function LogsPage() {
     fetch("/api/schedule").then(r => r.json()).then(d => {
       if (d.jobs) setProgrammedAlertIds(d.jobs.map((j: any) => Number(j.ID_ALERTA)))
     })
+    // Cargar usuarios asignables
+    fetch("/api/usuarios/asignables").then(r => r.json()).then(d => setUsuariosAsignables(d.usuarios || []))
   }, [])
 
   const fetchLogs = async (overrideIdAlert?: string) => {
@@ -131,11 +173,18 @@ export default function LogsPage() {
   }
 
   const handleExport = () => {
-    // Basic CSV export for demonstration
     const headers = ["ID", "Alerta", "Fecha", "Estado", "Asignado"]
-    const rows = logs.map(l => [l.ID, l.DESCRIPCION_ALERTA, l.FECHA, l.ESTADO === 'P' ? 'Pendiente' : 'Solucionado', l.ASIGNADO])
-    const csvContent = "data:text/csv;charset=utf-8," + 
-      headers.join(",") + "\n" + 
+    const rows = logs.map(l => [
+      l.ID,
+      l.DESCRIPCION_ALERTA,
+      l.FECHA,
+      l.ESTADO === "P" ? "Pendiente" : l.ESTADO === "A" ? "Asignado" : "Solucionado",
+      l.NOMBRE_ASIGNADO || "",
+    ])
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      headers.join(",") +
+      "\n" +
       rows.map(e => e.join(",")).join("\n")
     
     const encodedUri = encodeURI(csvContent)
@@ -149,31 +198,42 @@ export default function LogsPage() {
   const openEditSolucion = (log: LogEntry) => {
     setEditingLog(log)
     setEditEstado(log.ESTADO || "P")
-    setEditAsignado(log.ASIGNADO || "")
-    setEditSolucion(log.COMENTARIOS_SOLUCION || "")
+    setEditIdPersonaAsignada(log.ID_PERSONA_ASIGNADA || null)
+    setEditSolucion("") // Siempre inicia vacío: el usuario solo agrega texto nuevo
     setEditingLogViewMode(isHtml(log.LOG) ? 'html' : 'text')
+    setSaveError("")
   }
 
   const handleSaveSolucion = async () => {
     if (!editingLog) return
+
+    // Validar: estado A requiere usuario asignado
+    if (editEstado === "A" && !editIdPersonaAsignada) {
+      setSaveError("Debe seleccionar un Usuario Asignado cuando el estado es 'Asignado'.")
+      return
+    }
+    setSaveError("")
+
     try {
       const res = await fetch(`/api/logs/${editingLog.ID}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           comentarios_solucion: editSolucion,
           estado: editEstado,
-          asignado: editAsignado
-        })
+          id_persona_asignada: editIdPersonaAsignada,
+        }),
       })
       if (res.ok) {
         setEditingLog(null)
         fetchLogs()
       } else {
-        alert("Error al guardar la solución.")
+        const data = await res.json()
+        setSaveError(data.error || "Error al guardar los cambios.")
       }
     } catch (err) {
       console.error(err)
+      setSaveError("Error de conexión al guardar.")
     }
   }
 
@@ -181,7 +241,11 @@ export default function LogsPage() {
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedLogs = logs.slice(startIndex, startIndex + itemsPerPage)
 
+  // =====================================================================
+  // PANTALLA DE EDICIÓN
+  // =====================================================================
   if (editingLog) {
+    const logIsHtml = isHtml(editingLog.LOG)
     return (
       <div className="mx-auto max-w-6xl pb-20 font-sans space-y-8 animate-in fade-in duration-500">
         <div className="mb-8">
@@ -225,45 +289,49 @@ export default function LogsPage() {
               </div>
             </div>
 
+            {/* Log de Error */}
             <div className="bg-[#0b101e] border border-[#1e293b] rounded-xl p-6 shadow-lg shadow-black/50 relative group">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
                   <Terminal className="w-4 h-4 mr-2 text-[#ff5a1f]" /> Stack Trace / Log de Error
                 </h3>
                 <div className="flex items-center space-x-3">
-                  <div className="flex bg-[#050812] border border-[#1e293b] p-0.5 rounded-lg">
-                    <button
-                      onClick={() => setEditingLogViewMode('text')}
-                      className={cn(
-                        "flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all duration-200",
-                        editingLogViewMode === 'text'
-                          ? "bg-[#ff5a1f] text-white shadow-md shadow-[#ff5a1f]/20"
-                          : "text-slate-400 hover:text-white"
-                      )}
-                    >
-                      <Code className="w-3 h-3" />
-                      <span>Código</span>
-                    </button>
-                    <button
-                      onClick={() => setEditingLogViewMode('html')}
-                      className={cn(
-                        "flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all duration-200",
-                        editingLogViewMode === 'html'
-                          ? "bg-[#ff5a1f] text-white shadow-md shadow-[#ff5a1f]/20"
-                          : "text-slate-400 hover:text-white"
-                      )}
-                    >
-                      <Eye className="w-3 h-3" />
-                      <span>HTML</span>
-                    </button>
-                  </div>
+                  {/* Toggle Código/HTML: solo visible si el log es HTML */}
+                  {logIsHtml && (
+                    <div className="flex bg-[#050812] border border-[#1e293b] p-0.5 rounded-lg">
+                      <button
+                        onClick={() => setEditingLogViewMode('text')}
+                        className={cn(
+                          "flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all duration-200",
+                          editingLogViewMode === 'text'
+                            ? "bg-[#ff5a1f] text-white shadow-md shadow-[#ff5a1f]/20"
+                            : "text-slate-400 hover:text-white"
+                        )}
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>Texto</span>
+                      </button>
+                      <button
+                        onClick={() => setEditingLogViewMode('html')}
+                        className={cn(
+                          "flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all duration-200",
+                          editingLogViewMode === 'html'
+                            ? "bg-[#ff5a1f] text-white shadow-md shadow-[#ff5a1f]/20"
+                            : "text-slate-400 hover:text-white"
+                        )}
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>HTML</span>
+                      </button>
+                    </div>
+                  )}
                   <span className="text-[10px] font-mono bg-[#06b6d4]/10 text-[#06b6d4] border border-[#06b6d4]/20 px-2.5 py-1 rounded-md">
-                    TIMESTAMP: {editingLog.FECHA ? format(new Date(editingLog.FECHA), "yyyy-MM-dd HH:mm:ss") : 'N/A'}
+                    FECHA: {editingLog.FECHA ? format(new Date(editingLog.FECHA), "yyyy-MM-dd HH:mm:ss") : 'N/A'}
                   </span>
                 </div>
               </div>
               
-              {editingLogViewMode === 'html' ? (
+              {logIsHtml && editingLogViewMode === 'html' ? (
                 <div className="border border-[#1e293b] rounded-lg overflow-hidden h-80 bg-[#050812]">
                   <iframe
                     srcDoc={`
@@ -280,52 +348,14 @@ export default function LogsPage() {
                               padding: 16px;
                               font-size: 13px;
                             }
-                            table {
-                              width: 100%;
-                              border-collapse: collapse;
-                              margin-bottom: 16px;
-                              border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
-                            }
-                            th {
-                              background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.1)' : '#0f172a'};
-                              color: ${theme === 'light' ? '#0177ab' : '#38bdf8'};
-                              font-weight: 600;
-                              text-align: left;
-                              padding: 10px 12px;
-                              border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
-                              font-size: 11px;
-                              text-transform: uppercase;
-                              letter-spacing: 0.05em;
-                            }
-                            td {
-                              padding: 10px 12px;
-                              border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
-                            }
-                            tr:nth-child(even) {
-                              background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.04)' : '#0a0f1d'};
-                            }
-                            tr:hover {
-                              background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.08)' : '#0f172a'};
-                            }
-                            ::-webkit-scrollbar {
-                              width: 8px;
-                              height: 8px;
-                            }
-                            ::-webkit-scrollbar-track {
-                              background: transparent;
-                            }
-                            ::-webkit-scrollbar-thumb {
-                              background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.3)' : '#1e293b'};
-                              border-radius: 4px;
-                            }
-                            ::-webkit-scrollbar-thumb:hover {
-                              background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.5)' : '#334155'};
-                            }
+                            table { width: 100%; border-collapse: collapse; margin-bottom: 16px; border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'}; }
+                            th { background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.1)' : '#0f172a'}; color: ${theme === 'light' ? '#0177ab' : '#38bdf8'}; font-weight: 600; text-align: left; padding: 10px 12px; border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'}; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+                            td { padding: 10px 12px; border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'}; }
+                            tr:nth-child(even) { background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.04)' : '#0a0f1d'}; }
+                            tr:hover { background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.08)' : '#0f172a'}; }
                           </style>
                         </head>
-                        <body>
-                          ${editingLog.LOG || ''}
-                        </body>
+                        <body>${editingLog.LOG || ''}</body>
                       </html>
                     `}
                     className="w-full h-full border-0"
@@ -343,6 +373,7 @@ export default function LogsPage() {
             </div>
           </div>
 
+          {/* Panel de Resolución */}
           <div className="lg:col-span-1">
             <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 sticky top-8 shadow-xl">
               <h3 className="text-sm font-bold text-white mb-6 flex items-center pb-4 border-b border-[#1e293b]">
@@ -350,41 +381,147 @@ export default function LogsPage() {
               </h3>
               
               <div className="space-y-5">
+                {/* Estado */}
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Estado de la Alerta</label>
                   <select 
                     value={editEstado}
-                    onChange={(e) => setEditEstado(e.target.value)}
+                    onChange={(e) => {
+                      setEditEstado(e.target.value)
+                      // Si cambia de A a otro, limpiar asignado
+                      if (e.target.value !== "A") setEditIdPersonaAsignada(null)
+                      setSaveError("")
+                    }}
                     className="w-full bg-[#050812] border border-[#1e293b] text-slate-200 rounded-md h-10 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#ff5a1f]"
                   >
                     <option value="P">Pendiente</option>
+                    <option value="A">Asignado</option>
                     <option value="S">Solucionado</option>
                   </select>
                 </div>
 
+                {/* Usuario Asignado — solo si estado = A */}
+                {editEstado === "A" && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center">
+                      <UserCheck className="w-3 h-3 mr-1.5" />
+                      Usuario Asignado <span className="text-red-400 ml-1">*</span>
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
+                      <select
+                        value={editIdPersonaAsignada ?? ""}
+                        onChange={(e) => {
+                          setEditIdPersonaAsignada(e.target.value ? Number(e.target.value) : null)
+                          setSaveError("")
+                        }}
+                        className="w-full bg-[#050812] border border-blue-500/30 text-slate-200 rounded-md h-10 pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="">-- Seleccionar usuario --</option>
+                        {usuariosAsignables.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.nombre_completo}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error de validación */}
+                {saveError && (
+                  <div className="flex items-start bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <AlertCircle className="w-4 h-4 text-red-400 mr-2 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-red-400">{saveError}</p>
+                  </div>
+                )}
+
+                {/* Solución Aplicada */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Asignado a</label>
+                  <label className={cn(
+                    "text-[10px] font-bold uppercase tracking-widest",
+                    theme === 'light' ? "text-slate-500" : "text-slate-400"
+                  )}>Solución Aplicada</label>
+
+                  {/* Texto existente — solo lectura */}
+                  {editingLog.COMENTARIOS_SOLUCION && (
+                    <div className="relative">
+                      <div className={cn(
+                        "absolute top-2 right-2 flex items-center space-x-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border",
+                        theme === 'light'
+                          ? "bg-slate-200 border-slate-300 text-slate-500"
+                          : "bg-slate-800/80 border-slate-700 text-slate-500"
+                      )}>
+                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        <span>Solo lectura</span>
+                      </div>
+                      <div className={cn(
+                        "w-full rounded-md p-4 pr-24 text-sm min-h-[80px] whitespace-pre-wrap leading-relaxed italic",
+                        theme === 'light'
+                          ? "bg-slate-100 border border-slate-300 text-slate-500"
+                          : "bg-[#030509] border border-slate-700/50 text-slate-400 opacity-70"
+                      )}>
+                        {editingLog.COMENTARIOS_SOLUCION}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Nuevo texto a adicionar */}
                   <div className="relative">
-                    <User className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
-                    <input 
-                      type="text"
-                      placeholder="Nombre completo del responsable..."
-                      value={editAsignado}
-                      onChange={(e) => setEditAsignado(e.target.value)}
-                      className="w-full bg-[#050812] border border-[#1e293b] text-slate-200 rounded-md h-10 pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] placeholder:text-slate-600"
+                    {editingLog.COMENTARIOS_SOLUCION && (
+                      <span className={cn(
+                        "absolute -top-2.5 left-3 px-1.5 text-[9px] font-bold uppercase tracking-wider",
+                        theme === 'light'
+                          ? "bg-white text-green-600"
+                          : "bg-[#111827] text-green-400"
+                      )}>
+                        Adicionar texto
+                      </span>
+                    )}
+                    <textarea
+                      placeholder={editingLog.COMENTARIOS_SOLUCION
+                        ? "Escriba aquí el nuevo texto a agregar..."
+                        : "Describa la solución técnica aplicada..."
+                      }
+                      value={editSolucion}
+                      onChange={(e) => setEditSolucion(e.target.value)}
+                      className={cn(
+                        "w-full rounded-md p-4 text-sm focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] min-h-[100px] resize-none",
+                        theme === 'light'
+                          ? "bg-white border border-slate-300 text-slate-700 placeholder:text-slate-400"
+                          : "bg-[#050812] border border-[#1e293b] text-slate-200 placeholder:text-slate-600"
+                      )}
                     />
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Solución Aplicada</label>
-                  <textarea 
-                    placeholder="Describa la solución técnica aplicada..."
-                    value={editSolucion}
-                    onChange={(e) => setEditSolucion(e.target.value)}
-                    className="w-full bg-[#050812] border border-[#1e293b] rounded-md p-4 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-[#ff5a1f] min-h-[140px] resize-none placeholder:text-slate-600"
-                  />
-                </div>
+                {/* Historial de Estado — LOG_ESTADO */}
+                {editingLog.LOG_ESTADO && (
+                  <div className="space-y-2">
+                    <label className={cn(
+                      "text-[10px] font-bold uppercase tracking-widest flex items-center",
+                      theme === 'light' ? "text-slate-500" : "text-slate-400"
+                    )}>
+                      <Clock className="w-3 h-3 mr-1.5 text-[#06b6d4]" /> Historial de Estado
+                    </label>
+                    <div className={cn(
+                      "rounded-md p-3 max-h-40 overflow-y-auto space-y-1.5 border",
+                      theme === 'light'
+                        ? "bg-slate-50 border-slate-200"
+                        : "bg-[#050812] border-[#1e293b]"
+                    )}>
+                      {editingLog.LOG_ESTADO.split('\n').filter(l => l.trim()).map((entry, idx) => (
+                        <div key={idx} className="flex items-start text-[11px]">
+                          <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-[#06b6d4] mt-1 mr-2" />
+                          <span className={cn(
+                            "font-mono leading-relaxed",
+                            theme === 'light' ? "text-[#0177ab]" : "text-[#06b6d4]/80"
+                          )}>{entry}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-4 flex flex-col space-y-3">
                   <Button 
@@ -409,6 +546,9 @@ export default function LogsPage() {
     )
   }
 
+  // =====================================================================
+  // PANTALLA PRINCIPAL (LISTA)
+  // =====================================================================
   return (
     <div className="mx-auto pb-20 font-sans space-y-8 animate-in fade-in duration-500">
       
@@ -427,7 +567,7 @@ export default function LogsPage() {
       <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-5 flex flex-wrap lg:flex-nowrap gap-4 items-end shadow-md">
         <div className="w-full lg:w-48 space-y-2">
           <label className="text-[10px] font-bold text-slate-400 tracking-widest uppercase flex items-center">
-            <Calendar className="w-3 h-3 mr-1.5 text-[#06b6d4]" /> {t("logs.stateFilter") === t("logs.stateFilter") ? t("alerts.startDate") : "Start Date"}
+            <Calendar className="w-3 h-3 mr-1.5 text-[#06b6d4]" /> {t("alerts.startDate")}
           </label>
           <input 
             type="date" 
@@ -499,7 +639,7 @@ export default function LogsPage() {
             )}
           </div>
         </div>
-        <div className="w-full lg:w-40 space-y-2">
+        <div className="w-full lg:w-44 space-y-2">
           <label className="text-[10px] font-bold text-slate-400 tracking-widest uppercase flex items-center">
             <Filter className="w-3 h-3 mr-1.5 text-[#06b6d4]" /> {t("logs.stateFilter")}
           </label>
@@ -510,6 +650,7 @@ export default function LogsPage() {
           >
             <option value="Todas">{t("logs.allStatus")}</option>
             <option value="P">{t("logs.pending")}</option>
+            <option value="A">Asignado</option>
             <option value="S">{t("logs.solved")}</option>
           </select>
         </div>
@@ -547,7 +688,10 @@ export default function LogsPage() {
               ) : (
                 paginatedLogs.map(log => {
                   const isExpanded = expandedRows.includes(log.ID)
-                  const isPending = log.ESTADO === 'P'
+                  const isPending = log.ESTADO === "P"
+                  const isAsignado = log.ESTADO === "A"
+                  const canEdit = isPending || isAsignado
+                  const badge = getEstadoBadge(log.ESTADO)
                   
                   return (
                     <React.Fragment key={log.ID}>
@@ -573,25 +717,23 @@ export default function LogsPage() {
                         <td className="py-4 px-6">
                           <span className={cn(
                             "inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-                            isPending 
-                              ? "bg-orange-500/10 text-orange-500 border-orange-500/20" 
-                              : "bg-green-500/10 text-green-500 border-green-500/20"
+                            badge.classes
                           )}>
-                            <span className={cn("w-1.5 h-1.5 rounded-full mr-1.5", isPending ? "bg-orange-500" : "bg-green-500")} />
-                            {isPending ? 'Pendiente' : 'Solucionado'}
+                            <span className={cn("w-1.5 h-1.5 rounded-full mr-1.5", badge.dot)} />
+                            {badge.label}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-sm text-slate-300">
-                          {log.ASIGNADO || '---'}
+                          {log.NOMBRE_ASIGNADO || '---'}
                         </td>
                         <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                           <button 
-                            disabled={!isPending}
-                            onClick={() => isPending && openEditSolucion(log)}
-                            title={!isPending ? "No se puede editar un log solucionado" : "Editar"}
+                            disabled={!canEdit}
+                            onClick={() => canEdit && openEditSolucion(log)}
+                            title={!canEdit ? "No se puede editar un log solucionado" : "Editar"}
                             className={cn(
                               "p-2 rounded-lg transition-colors inline-flex",
-                              isPending ? "text-slate-500 hover:text-white hover:bg-[#1e293b]" : "text-slate-700 cursor-not-allowed"
+                              canEdit ? "text-slate-500 hover:text-white hover:bg-[#1e293b]" : "text-slate-700 cursor-not-allowed"
                             )}
                           >
                             <Edit2 className="w-4 h-4" />
@@ -615,7 +757,7 @@ export default function LogsPage() {
                                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Responsable</p>
                                     <div className="flex items-center">
                                       <User className="w-3 h-3 mr-1.5 text-slate-600" />
-                                      <p className="text-sm text-slate-300">{log.ASIGNADO || 'Sin asignar'}</p>
+                                      <p className="text-sm text-slate-300">{log.NOMBRE_ASIGNADO || 'Sin asignar'}</p>
                                     </div>
                                   </div>
                                 </div>
@@ -638,41 +780,44 @@ export default function LogsPage() {
                                   </div>
                                 </div>
 
+                                {/* Log de Error en vista expandida */}
                                 <div className="space-y-2">
                                   <div className="flex justify-between items-center">
                                     <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
                                       <Terminal className="w-3.5 h-3.5 mr-2 text-red-500" /> Log de Error / Ejecución
                                     </h4>
-                                    
-                                    <div className="flex bg-[#050812] border border-[#1e293b] p-0.5 rounded-lg">
-                                      <button
-                                        onClick={() => setRowViewModes(prev => ({ ...prev, [log.ID]: 'text' }))}
-                                        className={cn(
-                                          "flex items-center space-x-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition-all duration-200",
-                                          getRowViewMode(log.ID, log.LOG) === 'text'
-                                            ? "bg-[#ff5a1f] text-white shadow-sm"
-                                            : "text-slate-400 hover:text-white"
-                                        )}
-                                      >
-                                        <Code className="w-2.5 h-2.5" />
-                                        <span>Código</span>
-                                      </button>
-                                      <button
-                                        onClick={() => setRowViewModes(prev => ({ ...prev, [log.ID]: 'html' }))}
-                                        className={cn(
-                                          "flex items-center space-x-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition-all duration-200",
-                                          getRowViewMode(log.ID, log.LOG) === 'html'
-                                            ? "bg-[#ff5a1f] text-white shadow-sm"
-                                            : "text-slate-400 hover:text-white"
-                                        )}
-                                      >
-                                        <Eye className="w-2.5 h-2.5" />
-                                        <span>HTML</span>
-                                      </button>
-                                    </div>
+                                    {/* Toggle solo si log es HTML */}
+                                    {isHtml(log.LOG) && (
+                                      <div className="flex bg-[#050812] border border-[#1e293b] p-0.5 rounded-lg">
+                                        <button
+                                          onClick={() => setRowViewModes(prev => ({ ...prev, [log.ID]: 'text' }))}
+                                          className={cn(
+                                            "flex items-center space-x-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition-all duration-200",
+                                            getRowViewMode(log.ID, log.LOG) === 'text'
+                                              ? "bg-[#ff5a1f] text-white shadow-sm"
+                                              : "text-slate-400 hover:text-white"
+                                          )}
+                                        >
+                                          <Eye className="w-2.5 h-2.5" />
+                                          <span>Texto</span>
+                                        </button>
+                                        <button
+                                          onClick={() => setRowViewModes(prev => ({ ...prev, [log.ID]: 'html' }))}
+                                          className={cn(
+                                            "flex items-center space-x-1 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase transition-all duration-200",
+                                            getRowViewMode(log.ID, log.LOG) === 'html'
+                                              ? "bg-[#ff5a1f] text-white shadow-sm"
+                                              : "text-slate-400 hover:text-white"
+                                          )}
+                                        >
+                                          <Eye className="w-2.5 h-2.5" />
+                                          <span>HTML</span>
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
 
-                                  {getRowViewMode(log.ID, log.LOG) === 'html' ? (
+                                  {isHtml(log.LOG) && getRowViewMode(log.ID, log.LOG) === 'html' ? (
                                     <div className="border border-[#1e293b] rounded-lg overflow-hidden h-60 bg-[#050812]">
                                       <iframe
                                         srcDoc={`
@@ -681,60 +826,14 @@ export default function LogsPage() {
                                             <head>
                                               <meta charset="utf-8">
                                               <style>
-                                                body {
-                                                  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                                                  background-color: transparent;
-                                                  color: ${theme === 'light' ? '#04354d' : '#cbd5e1'};
-                                                  margin: 0;
-                                                  padding: 12px;
-                                                  font-size: 12px;
-                                                }
-                                                table {
-                                                  width: 100%;
-                                                  border-collapse: collapse;
-                                                  margin-bottom: 12px;
-                                                  border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
-                                                }
-                                                th {
-                                                  background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.1)' : '#0f172a'};
-                                                  color: ${theme === 'light' ? '#0177ab' : '#38bdf8'};
-                                                  font-weight: 600;
-                                                  text-align: left;
-                                                  padding: 8px 10px;
-                                                  border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
-                                                  font-size: 10px;
-                                                  text-transform: uppercase;
-                                                  letter-spacing: 0.05em;
-                                                }
-                                                td {
-                                                  padding: 8px 10px;
-                                                  border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'};
-                                                }
-                                                tr:nth-child(even) {
-                                                  background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.04)' : '#0a0f1d'};
-                                                }
-                                                tr:hover {
-                                                  background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.08)' : '#0f172a'};
-                                                }
-                                                ::-webkit-scrollbar {
-                                                  width: 6px;
-                                                  height: 6px;
-                                                }
-                                                ::-webkit-scrollbar-track {
-                                                  background: transparent;
-                                                }
-                                                ::-webkit-scrollbar-thumb {
-                                                  background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.3)' : '#1e293b'};
-                                                  border-radius: 3px;
-                                                }
-                                                ::-webkit-scrollbar-thumb:hover {
-                                                  background: ${theme === 'light' ? 'rgba(0, 170, 225, 0.5)' : '#334155'};
-                                                }
+                                                body { font-family: ui-sans-serif, system-ui, sans-serif; background-color: transparent; color: ${theme === 'light' ? '#04354d' : '#cbd5e1'}; margin: 0; padding: 12px; font-size: 12px; }
+                                                table { width: 100%; border-collapse: collapse; margin-bottom: 12px; border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'}; }
+                                                th { background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.1)' : '#0f172a'}; color: ${theme === 'light' ? '#0177ab' : '#38bdf8'}; font-weight: 600; text-align: left; padding: 8px 10px; border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'}; font-size: 10px; text-transform: uppercase; }
+                                                td { padding: 8px 10px; border: 1px solid ${theme === 'light' ? 'rgba(0, 170, 225, 0.25)' : '#1e293b'}; }
+                                                tr:nth-child(even) { background-color: ${theme === 'light' ? 'rgba(0, 170, 225, 0.04)' : '#0a0f1d'}; }
                                               </style>
                                             </head>
-                                            <body>
-                                              ${log.LOG || ''}
-                                            </body>
+                                            <body>${log.LOG || ''}</body>
                                           </html>
                                         `}
                                         className="w-full h-full border-0"
@@ -759,11 +858,11 @@ export default function LogsPage() {
                                     <MessageSquare className="w-3.5 h-3.5 mr-2 text-green-500" /> Solución del Incidente
                                   </h4>
                                   <div className={cn(
-                                    "bg-[#050812] border border-[#1e293b] rounded-lg p-6 relative min-h-[160px]",
+                                    "bg-[#050812] border border-[#1e293b] rounded-lg p-6 relative min-h-[120px]",
                                     !log.COMENTARIOS_SOLUCION && "flex items-center justify-center border-dashed border-slate-700"
                                   )}>
                                     {log.SOLUCIONADO && (
-                                      <div className="flex items-center mb-6">
+                                      <div className="flex items-center mb-4">
                                         <div className="w-8 h-8 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center mr-3">
                                           <CheckCircle2 className="w-4 h-4 text-green-500" />
                                         </div>
@@ -773,18 +872,34 @@ export default function LogsPage() {
                                         </div>
                                       </div>
                                     )}
-
                                     {log.COMENTARIOS_SOLUCION ? (
-                                      <p className="text-sm text-slate-300 italic leading-relaxed">
+                                      <p className="text-sm text-slate-300 italic leading-relaxed whitespace-pre-wrap">
                                         "{log.COMENTARIOS_SOLUCION}"
                                       </p>
                                     ) : (
                                       <div className="text-center">
-                                        <p className="text-xs text-slate-600 mb-4">No se ha registrado una respuesta para este incidente.</p>
+                                        <p className="text-xs text-slate-600">No se ha registrado una solución para este incidente.</p>
                                       </div>
                                     )}
                                   </div>
                                 </div>
+
+                                {/* Auditoría LOG_ESTADO */}
+                                {log.LOG_ESTADO && (
+                                  <div className="space-y-2">
+                                    <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
+                                      <Clock className="w-3.5 h-3.5 mr-2 text-[#06b6d4]" /> Historial de Estado
+                                    </h4>
+                                    <div className="bg-[#050812] border border-[#1e293b] rounded-lg p-4 space-y-2">
+                                      {log.LOG_ESTADO.split('\n').filter(l => l.trim()).map((entry, idx) => (
+                                        <div key={idx} className="flex items-start text-xs">
+                                          <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-[#06b6d4] mt-1.5 mr-2" />
+                                          <span className="font-mono text-[#06b6d4]/80">{entry}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
 
                                 <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-lg">
                                   <div className="flex items-start">
