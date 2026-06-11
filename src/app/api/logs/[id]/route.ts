@@ -26,6 +26,14 @@ export async function PUT(
       );
     }
 
+    // Validar: si estado = 'S', comentarios_solucion es obligatorio
+    if (estado === "S" && (!comentarios_solucion || !comentarios_solucion.trim())) {
+      return NextResponse.json(
+        { error: "Debe ingresar una solución aplicada cuando el estado es 'Solucionado'" },
+        { status: 400 }
+      );
+    }
+
     connection = await getOracleConnection();
 
     const binds: any = {

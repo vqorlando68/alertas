@@ -278,10 +278,17 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     v_p_body_html        CLOB;
     v_estado_prev        VARCHAR2(10);
     v_id_persona_prev    NUMBER;
+    v_log_error          CLOB;
+    v_pasos_a_seguir     CLOB;
   BEGIN
-    -- Obtener datos del log, la alerta, LOG_ESTADO previo, COMENTARIOS_SOLUCION previo y estado/asignado anteriores
-    SELECT L.ID_ALERTA, A.DESCRIPCION_ALERTA, L.LOG_ESTADO, L.COMENTARIOS_SOLUCION, L.ESTADO, L.ID_PERSONA_ASIGNADA
-      INTO v_id_alerta, v_descripcion_alerta, v_log_estado_prev, v_comentarios_prev, v_estado_prev, v_id_persona_prev
+    -- Validar: si estado es 'S', comentarios_solucion es obligatorio
+    IF p_estado = 'S' AND (p_comentarios_solucion IS NULL OR DBMS_LOB.GETLENGTH(p_comentarios_solucion) = 0) THEN
+      RAISE_APPLICATION_ERROR(-20011, 'Debe especificar los comentarios de la solución aplicada.');
+    END IF;
+
+    -- Obtener datos del log, la alerta, LOG_ESTADO previo, COMENTARIOS_SOLUCION previo y estado/asignado anteriores, más detalles del log y pasos
+    SELECT L.ID_ALERTA, A.DESCRIPCION_ALERTA, L.LOG_ESTADO, L.COMENTARIOS_SOLUCION, L.ESTADO, L.ID_PERSONA_ASIGNADA, L.LOG, A.PASOS_A_SEGUIR
+      INTO v_id_alerta, v_descripcion_alerta, v_log_estado_prev, v_comentarios_prev, v_estado_prev, v_id_persona_prev, v_log_error, v_pasos_a_seguir
       FROM TKR_LOG_ALERTAS L, TKR_ALERTAS A
      WHERE L.ID = p_id_log
        AND A.ID = L.ID_ALERTA;
@@ -372,11 +379,17 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
                || CHR(10) || CHR(10)
                || 'Se le ha asignado la atención del siguiente incidente en el sistema de Alertas:'
                || CHR(10)
-               || 'Alerta: ' || v_descripcion_alerta
+               || 'Alerta: #' || v_id_alerta || ' - ' || v_descripcion_alerta
                || CHR(10)
                || 'Log ID: ' || p_id_log
                || CHR(10)
                || 'Fecha de asignación: ' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS')
+               || CHR(10) || CHR(10)
+               || 'Pasos a Seguir:' || CHR(10)
+               || NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.')
+               || CHR(10) || CHR(10)
+               || 'Log de Error / Traza:' || CHR(10)
+               || NVL(v_log_error, 'Sin traza de error capturada.')
                || CHR(10) || CHR(10)
                || 'Por favor ingrese al sistema para atender este incidente.'
                || CHR(10) || CHR(10)
@@ -391,7 +404,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
         || '<p>Se le ha asignado la atención del siguiente incidente:</p>'
         || '<table style="width:100%; border-collapse: collapse; margin: 16px 0;">'
         || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold; width:140px;">Alerta:</td>'
-        || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || v_descripcion_alerta || '</td></tr>'
+        || '<td style="padding: 8px; border: 1px solid #dee2e6;">#' || v_id_alerta || ' - ' || v_descripcion_alerta || '</td></tr>'
         || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Log ID:</td>'
         || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || p_id_log || '</td></tr>'
         || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Asignado por:</td>'
@@ -399,6 +412,14 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
         || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Fecha:</td>'
         || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS') || '</td></tr>'
         || '</table>'
+        || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Pasos a Seguir Recomendados</h3>'
+        || '<div style="background: #fff; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-size: 13px; color: #334155; margin-bottom: 20px;">'
+        || REPLACE(NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.'), CHR(10), '<br>')
+        || '</div>'
+        || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Log de Error / Stack Trace</h3>'
+        || '<pre style="background: #0f172a; color: #f8fafc; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; font-family: monospace; whitespace-pre-wrap; white-space: pre-wrap;">'
+        || NVL(v_log_error, 'Sin traza de error capturada.')
+        || '</pre>'
         || '<p style="color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #dee2e6; padding-top: 12px;">'
         || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.</p>'
         || '</div></div>';
@@ -821,9 +842,11 @@ END;';
     v_has_rows           BOOLEAN := FALSE;
     v_p_body             CLOB;
     v_p_body_html        CLOB;
+    v_pasos_a_seguir     CLOB;
+    v_id_log             NUMBER;
   BEGIN
-    SELECT tipo_proceso, proceso, correo, descripcion_alerta 
-      INTO v_tipo_proceso, v_proceso, v_correo, v_descripcion_alerta
+    SELECT tipo_proceso, proceso, correo, descripcion_alerta, pasos_a_seguir 
+      INTO v_tipo_proceso, v_proceso, v_correo, v_descripcion_alerta, v_pasos_a_seguir
     FROM tkr_alertas 
     WHERE id = p_id_alerta;
 
@@ -877,20 +900,56 @@ END;';
           v_log_html, 
           f_fecha_actual, 
           'P'
-        );
+        ) RETURNING id INTO v_id_log;
 
         IF v_correo IS NOT NULL THEN
-          v_p_body := 'Se ha detectado una alerta (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
-          v_p_body_html := '<h2>Alerta Detectada</h2>' || 
-                           '<p>Se ha ejecutado el proceso de la alerta <b>' || p_id_alerta || ' - ' || v_descripcion_alerta || '</b> y se han encontrado los siguientes resultados:</p>' || 
-                           v_log_html;
+          v_p_body := 'Se ha detectado una alerta (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || ').'
+                   || CHR(10) || CHR(10)
+                   || 'Alerta: #' || p_id_alerta || ' - ' || v_descripcion_alerta
+                   || CHR(10)
+                   || 'Log ID: ' || v_id_log
+                   || CHR(10)
+                   || 'Fecha de detección: ' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS')
+                   || CHR(10) || CHR(10)
+                   || 'Pasos a Seguir:' || CHR(10)
+                   || NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.')
+                   || CHR(10) || CHR(10)
+                   || 'Por favor ingrese al sistema para atender este incidente.'
+                   || CHR(10) || CHR(10)
+                   || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.';
+
+          v_p_body_html := '<div style="font-family: sans-serif; font-size: 14px; color: #333; max-width: 600px;">'
+            || '<div style="background-color: #0b101e; padding: 20px; border-radius: 8px 8px 0 0;">'
+            || '<h1 style="color: #ff5a1f; margin: 0; font-size: 20px;">&#9888; Alerta Detectada</h1>'
+            || '</div>'
+            || '<div style="background-color: #f8f9fa; padding: 24px; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px;">'
+            || '<p>Se ha ejecutado la alerta y se han encontrado los siguientes resultados:</p>'
+            || '<table style="width:100%; border-collapse: collapse; margin: 16px 0;">'
+            || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold; width:140px;">Alerta:</td>'
+            || '<td style="padding: 8px; border: 1px solid #dee2e6;">#' || p_id_alerta || ' - ' || v_descripcion_alerta || '</td></tr>'
+            || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Log ID:</td>'
+            || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || v_id_log || '</td></tr>'
+            || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Fecha:</td>'
+            || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS') || '</td></tr>'
+            || '</table>'
+            || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Pasos a Seguir Recomendados</h3>'
+            || '<div style="background: #fff; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-size: 13px; color: #334155; margin-bottom: 20px;">'
+            || REPLACE(NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.'), CHR(10), '<br>')
+            || '</div>'
+            || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Resultados de la Ejecución</h3>'
+            || '<div style="overflow-x: auto; margin-bottom: 20px;">'
+            || v_log_html
+            || '</div>'
+            || '<p style="color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #dee2e6; padding-top: 12px;">'
+            || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.</p>'
+            || '</div></div>';
 
           apex_mail.send(
-            p_to       => v_correo,
-            p_from     => 'soporte@teker.co', 
-            p_body     => v_p_body,
+            p_to        => v_correo,
+            p_from      => 'soporte@teker.co', 
+            p_body      => v_p_body,
             p_body_html => v_p_body_html,
-            p_subj     => 'ALERTA: ' || p_id_alerta || ' - ' || SUBSTR(v_descripcion_alerta, 1, 50)
+            p_subj      => 'ALERTA: ' || p_id_alerta || ' - ' || SUBSTR(v_descripcion_alerta, 1, 50)
           );
           apex_mail.push_queue;
         END IF;
@@ -919,13 +978,49 @@ END;';
             v_log_html, 
             f_fecha_actual, 
             'P'
-          );
+          ) RETURNING id INTO v_id_log;
 
           IF v_correo IS NOT NULL THEN
-            v_p_body := 'Se ha detectado una alerta de procedimiento (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
-            v_p_body_html := '<h2>Alerta de Procedimiento Detectada</h2>' || 
-                             '<p>Se ha ejecutado el procedimiento de la alerta <b>' || p_id_alerta || ' - ' || v_descripcion_alerta || '</b> y se han obtenido los siguientes resultados:</p>' || 
-                             v_log_html;
+            v_p_body := 'Se ha detectado una alerta de procedimiento (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || ').'
+                     || CHR(10) || CHR(10)
+                     || 'Alerta: #' || p_id_alerta || ' - ' || v_descripcion_alerta
+                     || CHR(10)
+                     || 'Log ID: ' || v_id_log
+                     || CHR(10)
+                     || 'Fecha de detección: ' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS')
+                     || CHR(10) || CHR(10)
+                     || 'Pasos a Seguir:' || CHR(10)
+                     || NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.')
+                     || CHR(10) || CHR(10)
+                     || 'Por favor ingrese al sistema para atender este incidente.'
+                     || CHR(10) || CHR(10)
+                     || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.';
+
+            v_p_body_html := '<div style="font-family: sans-serif; font-size: 14px; color: #333; max-width: 600px;">'
+              || '<div style="background-color: #0b101e; padding: 20px; border-radius: 8px 8px 0 0;">'
+              || '<h1 style="color: #ff5a1f; margin: 0; font-size: 20px;">&#9888; Alerta de Procedimiento</h1>'
+              || '</div>'
+              || '<div style="background-color: #f8f9fa; padding: 24px; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px;">'
+              || '<p>Se ha ejecutado el procedimiento de la alerta y se han obtenido los siguientes resultados:</p>'
+              || '<table style="width:100%; border-collapse: collapse; margin: 16px 0;">'
+              || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold; width:140px;">Alerta:</td>'
+              || '<td style="padding: 8px; border: 1px solid #dee2e6;">#' || p_id_alerta || ' - ' || v_descripcion_alerta || '</td></tr>'
+              || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Log ID:</td>'
+              || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || v_id_log || '</td></tr>'
+              || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Fecha:</td>'
+              || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS') || '</td></tr>'
+              || '</table>'
+              || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Pasos a Seguir Recomendados</h3>'
+              || '<div style="background: #fff; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-size: 13px; color: #334155; margin-bottom: 20px;">'
+              || REPLACE(NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.'), CHR(10), '<br>')
+              || '</div>'
+              || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Resultados de la Ejecución</h3>'
+              || '<div style="overflow-x: auto; margin-bottom: 20px;">'
+              || v_log_html
+              || '</div>'
+              || '<p style="color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #dee2e6; padding-top: 12px;">'
+              || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.</p>'
+              || '</div></div>';
 
             apex_mail.send(
               p_to       => v_correo,
@@ -966,13 +1061,49 @@ END;';
             v_log_html, 
             f_fecha_actual, 
             'P'
-          );
+          ) RETURNING id INTO v_id_log;
 
           IF v_correo IS NOT NULL THEN
-            v_p_body := 'Se ha detectado una alerta de función (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || '). Por favor revise el log adjunto en el sistema.';
-            v_p_body_html := '<h2>Alerta de Función Detectada</h2>' || 
-                             '<p>Se ha ejecutado la función de la alerta <b>' || p_id_alerta || ' - ' || v_descripcion_alerta || '</b> y se han obtenido los siguientes resultados:</p>' || 
-                             v_log_html;
+            v_p_body := 'Se ha detectado una alerta de función (ID: ' || p_id_alerta || ' - ' || v_descripcion_alerta || ').'
+                     || CHR(10) || CHR(10)
+                     || 'Alerta: #' || p_id_alerta || ' - ' || v_descripcion_alerta
+                     || CHR(10)
+                     || 'Log ID: ' || v_id_log
+                     || CHR(10)
+                     || 'Fecha de detección: ' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS')
+                     || CHR(10) || CHR(10)
+                     || 'Pasos a Seguir:' || CHR(10)
+                     || NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.')
+                     || CHR(10) || CHR(10)
+                     || 'Por favor ingrese al sistema para atender este incidente.'
+                     || CHR(10) || CHR(10)
+                     || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.';
+
+            v_p_body_html := '<div style="font-family: sans-serif; font-size: 14px; color: #333; max-width: 600px;">'
+              || '<div style="background-color: #0b101e; padding: 20px; border-radius: 8px 8px 0 0;">'
+              || '<h1 style="color: #ff5a1f; margin: 0; font-size: 20px;">&#9888; Alerta de Función</h1>'
+              || '</div>'
+              || '<div style="background-color: #f8f9fa; padding: 24px; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px;">'
+              || '<p>Se ha ejecutado la función de la alerta y se han obtenido los siguientes resultados:</p>'
+              || '<table style="width:100%; border-collapse: collapse; margin: 16px 0;">'
+              || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold; width:140px;">Alerta:</td>'
+              || '<td style="padding: 8px; border: 1px solid #dee2e6;">#' || p_id_alerta || ' - ' || v_descripcion_alerta || '</td></tr>'
+              || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Log ID:</td>'
+              || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || v_id_log || '</td></tr>'
+              || '<tr><td style="padding: 8px; background:#e9ecef; font-weight:bold;">Fecha:</td>'
+              || '<td style="padding: 8px; border: 1px solid #dee2e6;">' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI:SS') || '</td></tr>'
+              || '</table>'
+              || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Pasos a Seguir Recomendados</h3>'
+              || '<div style="background: #fff; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-size: 13px; color: #334155; margin-bottom: 20px;">'
+              || REPLACE(NVL(v_pasos_a_seguir, 'No hay pasos definidos para esta alerta.'), CHR(10), '<br>')
+              || '</div>'
+              || '<h3 style="font-size: 13px; color: #0f172a; margin-top: 20px; margin-bottom: 8px;">Resultados de la Ejecución</h3>'
+              || '<div style="overflow-x: auto; margin-bottom: 20px;">'
+              || v_log_html
+              || '</div>'
+              || '<p style="color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #dee2e6; padding-top: 12px;">'
+              || 'Este correo fue generado automáticamente por el Sistema de Alertas Teker.</p>'
+              || '</div></div>';
 
             apex_mail.send(
               p_to       => v_correo,

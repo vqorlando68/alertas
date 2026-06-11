@@ -222,6 +222,11 @@ export default function LogsPage() {
       setSaveError("Debe seleccionar un Usuario Asignado cuando el estado es 'Asignado'.")
       return
     }
+    // Validar: estado S requiere comentarios de solución
+    if (editEstado === "S" && (!editSolucion || !editSolucion.trim())) {
+      setSaveError("Debe ingresar una solución aplicada cuando el estado es 'Solucionado'.")
+      return
+    }
     setSaveError("")
 
     try {
