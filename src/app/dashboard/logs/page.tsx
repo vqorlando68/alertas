@@ -24,7 +24,10 @@ import {
   ArrowLeft,
   ShieldAlert,
   Eye,
-  UserCheck
+  UserCheck,
+  Printer,
+  Send,
+  Mail
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -91,6 +94,13 @@ export default function LogsPage() {
   const { t, theme } = useApp()
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [loading, setLoading] = React.useState(true)
+
+  // Print / Email Report States
+  const [printingLog, setPrintingLog] = React.useState<LogEntry | null>(null)
+  const [emailToPrint, setEmailToPrint] = React.useState("")
+  const [isSendingEmail, setIsSendingEmail] = React.useState(false)
+  const [emailSuccess, setEmailSuccess] = React.useState<string | null>(null)
+  const [emailError, setEmailError] = React.useState<string | null>(null)
   const [expandedRows, setExpandedRows] = React.useState<number[]>([])
   
   // Expanded rows view modes: solo para HTML si aplica
@@ -234,6 +244,82 @@ export default function LogsPage() {
     } catch (err) {
       console.error(err)
       setSaveError("Error de conexión al guardar.")
+    }
+  }
+
+  const handlePrint = () => {
+    if (!printingLog) return;
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) return;
+    
+    const fechaSolStr = printingLog.FECHA_SOLUCION ? format(new Date(printingLog.FECHA_SOLUCION), "yyyy-MM-dd HH:mm:ss") : 'N/A';
+    const fechaOcurrenciaStr = printingLog.FECHA ? format(new Date(printingLog.FECHA), "yyyy-MM-dd HH:mm:ss") : 'N/A';
+    
+    let html = '<html><head><title>Reporte de Solución de Incidente - Log #' + printingLog.ID + '</title>';
+    html += '<style>';
+    html += 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #333; line-height: 1.6; }';
+    html += '.header { border-bottom: 2px solid #ff5a1f; padding-bottom: 20px; margin-bottom: 30px; }';
+    html += '.header h1 { margin: 0 0 10px 0; color: #0b101e; font-size: 24px; }';
+    html += '.header p { margin: 0; color: #666; font-size: 14px; }';
+    html += '.section { margin-bottom: 30px; }';
+    html += '.section h2 { font-size: 16px; text-transform: uppercase; color: #ff5a1f; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 15px; }';
+    html += 'table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }';
+    html += 'th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; font-size: 14px; }';
+    html += 'th { font-weight: bold; color: #666; width: 200px; }';
+    html += 'pre { background: #f8f9fa; border: 1px solid #e2e8f0; padding: 15px; border-radius: 6px; white-space: pre-wrap; font-size: 13px; font-family: monospace; }';
+    html += '.solution-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 6px; color: #166534; font-style: italic; white-space: pre-wrap; font-size: 14px; }';
+    html += '</style></head><body>';
+    
+    html += '<div class="header"><h1>Reporte de Incidente Solucionado</h1>';
+    html += '<p>Fecha de Solución: <strong>' + fechaSolStr + '</strong></p></div>';
+    
+    html += '<div class="section"><h2>Detalles Generales</h2><table>';
+    html += '<tr><th>ID Registro Log</th><td>#' + printingLog.ID + '</td></tr>';
+    html += '<tr><th>ID Alerta</th><td>#AL-' + printingLog.ID_ALERTA + '</td></tr>';
+    html += '<tr><th>Descripción Alerta</th><td>' + printingLog.DESCRIPCION_ALERTA + '</td></tr>';
+    html += '<tr><th>Fecha Ocurrencia</th><td>' + fechaOcurrenciaStr + '</td></tr>';
+    html += '<tr><th>Solucionado Por</th><td>' + (printingLog.SOLUCIONADO || 'N/A') + '</td></tr>';
+    html += '</table></div>';
+    
+    html += '<div class="section"><h2>Solución Aplicada</h2>';
+    html += '<div class="solution-box">' + (printingLog.COMENTARIOS_SOLUCION || 'Sin comentarios registrados.') + '</div></div>';
+    
+
+    
+    html += '<div class="section"><h2>Log de Error Original</h2>';
+    html += '<pre>' + (printingLog.LOG || '-- Sin traza de error --') + '</pre></div>';
+    
+    html += '<script>';
+    html += 'window.onload = function() { window.print(); window.onafterprint = function() { window.close(); } };';
+    html += '</script></body></html>';
+    
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+
+  const handleSendEmail = async () => {
+    if (!printingLog || !emailToPrint) return;
+    setIsSendingEmail(true);
+    setEmailSuccess(null);
+    setEmailError(null);
+    try {
+      const res = await fetch(`/api/logs/${printingLog.ID}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailToPrint }),
+      });
+      if (res.ok) {
+        setEmailSuccess("Reporte enviado con éxito.");
+        setEmailToPrint("");
+      } else {
+        const data = await res.json();
+        setEmailError(data.error || "Error al enviar el correo.");
+      }
+    } catch (err) {
+      console.error(err);
+      setEmailError("Error de conexión al enviar.");
+    } finally {
+      setIsSendingEmail(false);
     }
   }
 
@@ -726,7 +812,7 @@ export default function LogsPage() {
                         <td className="py-4 px-6 text-sm text-slate-300">
                           {log.NOMBRE_ASIGNADO || '---'}
                         </td>
-                        <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-4 px-6 text-right space-x-2" onClick={(e) => e.stopPropagation()}>
                           <button 
                             disabled={!canEdit}
                             onClick={() => canEdit && openEditSolucion(log)}
@@ -738,6 +824,15 @@ export default function LogsPage() {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
+                          {log.ESTADO === 'S' && (
+                            <button
+                              onClick={() => setPrintingLog(log)}
+                              title="Imprimir / Enviar Reporte"
+                              className="p-2 rounded-lg transition-colors inline-flex text-slate-500 hover:text-white hover:bg-[#1e293b]"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                       
@@ -964,6 +1059,122 @@ export default function LogsPage() {
           </div>
         </div>
       </div>
+
+      {/* Modern Modal to Print or Email Report */}
+      {printingLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={cn(
+            "relative w-full max-w-2xl rounded-xl border p-6 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6 animate-in slide-in-from-bottom-8 duration-300",
+            theme === 'light' ? "bg-white border-slate-200 text-slate-800" : "bg-[#0b101e] border-[#1e293b] text-slate-200"
+          )}>
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setPrintingLog(null)
+                setEmailToPrint("")
+                setEmailSuccess(null)
+                setEmailError(null)
+              }}
+              className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+
+            {/* Modal Header */}
+            <div>
+              <div className="flex items-center space-x-3 text-[#ff5a1f] mb-2">
+                <Printer className="w-6 h-6" />
+                <h2 className="text-xl font-bold">Reporte de Cierre de Incidente</h2>
+              </div>
+              <p className="text-xs opacity-70">
+                Solucionado el: <span className="font-bold">{printingLog.FECHA_SOLUCION ? format(new Date(printingLog.FECHA_SOLUCION), "dd MMMM yyyy, HH:mm", { locale: es }) : 'N/A'}</span>
+              </p>
+            </div>
+
+            {/* Modal Content */}
+            <div className="space-y-4 border-t border-b py-4 dark:border-slate-800 border-slate-200">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 rounded-lg dark:bg-[#050812] bg-slate-50 border border-slate-200 dark:border-slate-800">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">ID Registro</p>
+                  <p className="text-sm font-mono font-bold">#LOG-{printingLog.ID}</p>
+                </div>
+                <div className="p-3 rounded-lg dark:bg-[#050812] bg-slate-50 border border-slate-200 dark:border-slate-800">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Alerta Relacionada</p>
+                  <p className="text-sm font-bold text-[#06b6d4]">#AL-{printingLog.ID_ALERTA}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Descripción de la Alerta</p>
+                <p className="text-sm font-semibold">{printingLog.DESCRIPCION_ALERTA}</p>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Solución Técnica Aplicada</p>
+                <div className="p-4 rounded-lg bg-green-500/5 dark:bg-green-500/10 border border-green-500/20 text-sm italic whitespace-pre-wrap">
+                  {printingLog.COMENTARIOS_SOLUCION || 'Sin comentarios registrados.'}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Email and Print Actions */}
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Enviar Reporte por Correo</label>
+                <div className="flex space-x-2">
+                  <input
+                    type="email"
+                    placeholder="ejemplo@correo.com"
+                    value={emailToPrint}
+                    onChange={(e) => setEmailToPrint(e.target.value)}
+                    className={cn(
+                      "flex-1 rounded-md h-10 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#ff5a1f]",
+                      theme === 'light'
+                        ? "bg-white border border-slate-300 text-slate-700 placeholder:text-slate-400"
+                        : "bg-[#050812] border border-[#1e293b] text-slate-200 placeholder:text-slate-600"
+                    )}
+                  />
+                  <Button
+                    onClick={handleSendEmail}
+                    disabled={isSendingEmail || !emailToPrint}
+                    className="bg-[#06b6d4] hover:bg-[#0891b2] text-black font-bold h-10 px-4 rounded-md"
+                  >
+                    {isSendingEmail ? "Enviando..." : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" /> Enviar
+                      </>
+                    )}
+                  </Button>
+                </div>
+                {emailSuccess && <p className="text-xs text-green-500 font-medium">{emailSuccess}</p>}
+                {emailError && <p className="text-xs text-red-500 font-medium">{emailError}</p>}
+              </div>
+
+              <div className="flex justify-between items-center pt-2 border-t dark:border-slate-800 border-slate-200">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPrintingLog(null)
+                    setEmailToPrint("")
+                    setEmailSuccess(null)
+                    setEmailError(null)
+                  }}
+                  className="text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                >
+                  Cerrar
+                </Button>
+                <Button
+                  onClick={handlePrint}
+                  className="bg-[#ff5a1f] hover:bg-[#e04a14] text-white font-bold h-11 px-6 shadow-lg shadow-[#ff5a1f]/20 rounded-md"
+                >
+                  <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

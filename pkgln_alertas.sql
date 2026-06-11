@@ -339,11 +339,11 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
         -- Ya existe texto: adicionar separador + nuevo texto
         v_comentarios_nuevo := v_comentarios_prev
                             || CHR(10) || '---' || CHR(10)
-                            || '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || ' - ' || p_solucionado || '] '
+                            || '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || ' - ' || p_solucionado || ']' || CHR(10)
                             || p_comentarios_solucion;
       ELSE
         -- No había texto previo: usar el nuevo directamente
-        v_comentarios_nuevo := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || ' - ' || p_solucionado || '] '
+        v_comentarios_nuevo := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || ' - ' || p_solucionado || ']' || CHR(10)
                             || p_comentarios_solucion;
       END IF;
     ELSE
@@ -366,8 +366,8 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
 
     COMMIT;
 
-    -- Enviar correo al asignado si estado = 'A' y tiene correo
-    IF p_estado = 'A' AND v_correo_asignado IS NOT NULL THEN
+    -- Enviar correo al asignado si el estado cambia a 'A' o se cambia el usuario asignado
+    IF p_estado = 'A' AND v_correo_asignado IS NOT NULL AND (v_estado_prev != 'A' OR NVL(p_id_persona_asignada, -1) != NVL(v_id_persona_prev, -1)) THEN
       v_p_body := 'Estimado/a ' || v_nombre_asignado || ','
                || CHR(10) || CHR(10)
                || 'Se le ha asignado la atención del siguiente incidente en el sistema de Alertas:'
