@@ -70,8 +70,8 @@ CREATE OR REPLACE PACKAGE pkgln_alertas AS
   -- MODIFICADO: reemplaza p_asignado (texto) por p_id_persona_asignada (NUMBER)
   PROCEDURE p_save_log_solucion (
     p_id_log               IN NUMBER,
-    p_estado               IN VARCHAR2,
-    p_id_persona_asignada  IN NUMBER,
+    p_estado               IN VARCHAR2 DEFAULT 'S',
+    p_id_persona_asignada  IN NUMBER DEFAULT NULL,
     p_solucionado          IN VARCHAR2,
     p_comentarios_solucion IN CLOB
   );
@@ -260,8 +260,8 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
   -- ==========================================
   PROCEDURE p_save_log_solucion (
     p_id_log               IN NUMBER,
-    p_estado               IN VARCHAR2,
-    p_id_persona_asignada  IN NUMBER,
+    p_estado               IN VARCHAR2 DEFAULT 'S',
+    p_id_persona_asignada  IN NUMBER DEFAULT NULL,
     p_solucionado          IN VARCHAR2,
     p_comentarios_solucion IN CLOB
   ) IS
@@ -276,10 +276,12 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     v_id_alerta          NUMBER;
     v_p_body             CLOB;
     v_p_body_html        CLOB;
+    v_estado_prev        VARCHAR2(10);
+    v_id_persona_prev    NUMBER;
   BEGIN
-    -- Obtener datos del log, la alerta, LOG_ESTADO previo y COMENTARIOS_SOLUCION previo
-    SELECT L.ID_ALERTA, A.DESCRIPCION_ALERTA, L.LOG_ESTADO, L.COMENTARIOS_SOLUCION
-      INTO v_id_alerta, v_descripcion_alerta, v_log_estado_prev, v_comentarios_prev
+    -- Obtener datos del log, la alerta, LOG_ESTADO previo, COMENTARIOS_SOLUCION previo y estado/asignado anteriores
+    SELECT L.ID_ALERTA, A.DESCRIPCION_ALERTA, L.LOG_ESTADO, L.COMENTARIOS_SOLUCION, L.ESTADO, L.ID_PERSONA_ASIGNADA
+      INTO v_id_alerta, v_descripcion_alerta, v_log_estado_prev, v_comentarios_prev, v_estado_prev, v_id_persona_prev
       FROM TKR_LOG_ALERTAS L, TKR_ALERTAS A
      WHERE L.ID = p_id_log
        AND A.ID = L.ID_ALERTA;
@@ -299,16 +301,24 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
     END IF;
 
     -- Construir nueva entrada de auditoría para LOG_ESTADO
-    IF p_estado = 'A' AND p_id_persona_asignada IS NOT NULL THEN
+    v_auditoria := NULL;
+    IF p_estado != v_estado_prev OR NVL(p_id_persona_asignada, -1) != NVL(v_id_persona_prev, -1) THEN
+      -- Hay cambio de estado o asignado
+      IF p_estado = 'A' AND p_id_persona_asignada IS NOT NULL THEN
+        v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
+                    || 'Asignado a: ' || v_nombre_asignado
+                    || ' | Por: ' || p_solucionado;
+      ELSIF p_estado = 'S' THEN
+        v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
+                    || 'Solucionado por: ' || p_solucionado;
+      ELSIF p_estado = 'P' THEN
+        v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
+                    || 'Regresado a Pendiente por: ' || p_solucionado;
+      END IF;
+    ELSIF p_comentarios_solucion IS NOT NULL AND DBMS_LOB.GETLENGTH(p_comentarios_solucion) > 0 THEN
+      -- No hay cambio de estado/asignación, pero se agregó texto
       v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
-                  || 'Asignado a: ' || v_nombre_asignado
-                  || ' | Por: ' || p_solucionado;
-    ELSIF p_estado = 'S' THEN
-      v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
-                  || 'Solucionado por: ' || p_solucionado;
-    ELSIF p_estado = 'P' THEN
-      v_auditoria := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || '] '
-                  || 'Regresado a Pendiente por: ' || p_solucionado;
+                  || 'Texto de Solución adicionado por: ' || p_solucionado;
     END IF;
 
     -- Acumular entradas de auditoría en LOG_ESTADO (VARCHAR2 4000)
@@ -329,10 +339,12 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
         -- Ya existe texto: adicionar separador + nuevo texto
         v_comentarios_nuevo := v_comentarios_prev
                             || CHR(10) || '---' || CHR(10)
+                            || '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || ' - ' || p_solucionado || '] '
                             || p_comentarios_solucion;
       ELSE
         -- No había texto previo: usar el nuevo directamente
-        v_comentarios_nuevo := p_comentarios_solucion;
+        v_comentarios_nuevo := '[' || TO_CHAR(f_fecha_actual, 'DD/MM/YYYY HH24:MI') || ' - ' || p_solucionado || '] '
+                            || p_comentarios_solucion;
       END IF;
     ELSE
       -- No se envió texto nuevo: conservar el existente sin cambios

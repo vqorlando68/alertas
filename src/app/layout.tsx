@@ -16,7 +16,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className="dark">
+    <html lang="es" className="dark" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const saved = localStorage.getItem('app-theme');
+                if (saved === 'light') {
+                  document.documentElement.classList.remove('dark');
+                } else if (saved === 'dark') {
+                  document.documentElement.classList.add('dark');
+                }
+              } catch (e) {}
+            `
+          }}
+        />
+      </head>
       <body className={spaceGrotesk.className}>
         <AppProvider>
           {children}

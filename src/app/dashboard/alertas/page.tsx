@@ -7,6 +7,7 @@ import * as z from "zod"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Save, History, FileText, AlertTriangle, ChevronRight, Activity, AlignLeft, Bold, Italic, List, Link2, Mail, Phone, Plus, Search, ChevronDown, ChevronUp, Edit2, Trash2, TrendingUp, TrendingDown, BookOpen, CalendarClock, Clock, Play, XCircle, CheckCircle2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -45,6 +46,7 @@ type Alerta = {
 
 export default function AlertasPage() {
   const { t } = useApp()
+  const router = useRouter()
   const [alertas, setAlertas] = React.useState<Alerta[]>([])
   const [loading, setLoading] = React.useState(true)
   
@@ -733,7 +735,7 @@ export default function AlertasPage() {
                         </td>
                         <td className="py-4 px-6 text-right space-x-3 whitespace-nowrap">
                           <button title="Ejecutar Alerta" onClick={() => handleExecuteAlert(a)} className="text-slate-500 hover:text-green-500 transition-colors"><Play className="w-4 h-4 inline-block" /></button>
-                          <button title="Ver Logs" onClick={() => window.location.href = `/dashboard/logs?id_alerta=${a.ID}`} className="text-slate-500 hover:text-white transition-colors"><FileText className="w-4 h-4 inline-block" /></button>
+                          <button title="Ver Logs" onClick={() => router.push(`/dashboard/logs?id_alerta=${a.ID}`)} className="text-slate-500 hover:text-white transition-colors"><FileText className="w-4 h-4 inline-block" /></button>
                           <button title="Ver Programaciones" onClick={() => handleViewSchedule(a)} className="text-slate-500 hover:text-[#06b6d4] transition-colors"><CalendarClock className="w-4 h-4 inline-block" /></button>
                           <button onClick={() => openEdit(a)} className="text-slate-500 hover:text-white transition-colors"><Edit2 className="w-4 h-4 inline-block" /></button>
                           <button onClick={() => handleDelete(a.ID)} className="text-slate-500 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4 inline-block" /></button>

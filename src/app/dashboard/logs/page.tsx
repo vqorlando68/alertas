@@ -247,7 +247,7 @@ export default function LogsPage() {
   if (editingLog) {
     const logIsHtml = isHtml(editingLog.LOG)
     return (
-      <div className="mx-auto max-w-6xl pb-20 font-sans space-y-8 animate-in fade-in duration-500">
+      <div className="mx-auto max-w-7xl pb-20 font-sans space-y-8 animate-in fade-in duration-500">
         <div className="mb-8">
           <button onClick={() => setEditingLog(null)} className="flex items-center text-slate-400 hover:text-white transition-colors mb-4 text-sm font-medium">
             <ArrowLeft className="w-4 h-4 mr-2" /> {t("logs.backToLogs")}
@@ -258,8 +258,8 @@ export default function LogsPage() {
           <p className="text-sm text-slate-400">{t("logs.editSubtitle")}</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3 space-y-6">
             <div className="bg-[#0b101e] border border-red-500/20 rounded-xl p-6 shadow-lg shadow-black/50">
               <div className="flex items-start mb-4">
                  <div className="bg-red-500/10 p-2.5 rounded-lg border border-red-500/20 mr-4">
@@ -374,7 +374,7 @@ export default function LogsPage() {
           </div>
 
           {/* Panel de Resolución */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-2">
             <div className="bg-[#111827] border border-[#1e293b] rounded-xl p-6 sticky top-8 shadow-xl">
               <h3 className="text-sm font-bold text-white mb-6 flex items-center pb-4 border-b border-[#1e293b]">
                 <Edit2 className="w-4 h-4 mr-2 text-[#ff5a1f]" /> {t("logs.resolution")}
