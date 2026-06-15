@@ -1,0 +1,95 @@
+========================================================================
+TEKER APPS - GUÍA DE COLORES Y PALETA DE ESTILOS (SISTEMA DE DISEÑO)
+========================================================================
+Esta paleta de colores combina un diseño moderno (Glassmorphism + Neón)
+que asegura una transición fluida y elegante entre los modos claro y oscuro.
+
+------------------------------------------------------------------------
+1. MODOS DE COLOR GENERAL (CSS VARIABLES)
+------------------------------------------------------------------------
+
+MODO CLARO (:root)
+=================
+Fondo General (Background): HSL 198 100% 97% (#effaff)
+   * Nota: En el body se aplica un degradado lineal:
+     linear-gradient(135deg, #effaff 0%, #dff4ff 40%, #b6ecff 100%)
+Texto Principal (Foreground): HSL 0 0% 21% (#363636) / #04354d (Navy Oscuro)
+Tarjetas (Card): HSL 0 0% 100% (#ffffff) translúcido
+Popover: HSL 0 0% 100% (#ffffff)
+Bordes (Border): HSL 198 100% 86% (#b6ecff) o rgba(0, 170, 225, 0.25) (Cian Neón translúcido)
+Input Focus: Sombra de anillo: rgba(0, 170, 225, 0.25), borde: #00aae1
+
+MODO OSCURO (.dark)
+==================
+Fondo General (Background): HSL 0 0% 7% (#121212)
+Texto Principal (Foreground): HSL 0 0% 98% (#fafafa)
+Tarjetas (Card): HSL 0 0% 10% (#1a1a1a)
+Popover: HSL 0 0% 10% (#1a1a1a)
+Bordes (Border): HSL 0 0% 14.9% (#262626)
+
+------------------------------------------------------------------------
+2. TONOS DEL NÚCLEO (PALETA SEMÁNTICA)
+------------------------------------------------------------------------
+
+NARANJA (Primario / Creatividad / Acciones Fuertes)
+===================================================
+* Modo Claro: HSL 22 100% 61% (#ff7a39) o #ff5a1f
+  - Hover: #e06020
+* Modo Oscuro: HSL 22 93% 53% (#e95814) o #ff5a1f
+  - Hover: #e04a14
+
+AZUL CIAN (Acento / Monitoreo / Información / Seguridad)
+========================================================
+* Modo Claro: HSL 197 100% 44% (#00aae1)
+* Modo Oscuro: HSL 0 0% 14.9% (Acento) / #06b6d4 (Neón Cian en logs)
+
+VERDE (Éxito / Solucionado / Estado OK)
+======================================
+* Modo Claro: #01ae6c (Verde sólido óptimo para lectura sobre fondo claro)
+* Modo Oscuro / Neón: #0fecaa
+
+ROJO (Destructivo / Error / Fallo Crítico)
+===========================================
+* Modo Claro: HSL 0 84.2% 60.2%
+* Modo Oscuro: HSL 0 62.8% 30.6%
+
+------------------------------------------------------------------------
+3. MAQUETACIÓN GLASSMORPHISM (MODO CLARO)
+------------------------------------------------------------------------
+Para lograr el aspecto premium de "vidrio esmerilado" sobre el fondo degradado:
+* Fondo de Tarjeta (glass-bg): rgba(255, 255, 255, 0.60)
+* Borde de Tarjeta (glass-border): rgba(0, 170, 225, 0.30)
+* Sombra de Tarjeta (glass-shadow): 0 4px 24px rgba(0, 170, 225, 0.10)
+* Filtro de Desenfoque: backdrop-filter: blur(16px) saturate(180%)
+
+------------------------------------------------------------------------
+4. MAPPINGS Y REGLAS DE TRANSLACIÓN (CLARO <-> OSCURO)
+------------------------------------------------------------------------
+Cuando se usan clases estáticas de Tailwind de fondo oscuro en el HTML, 
+el CSS global (globals.css) realiza la siguiente traducción automática
+para el modo claro (html:not(.dark)):
+
+FONDOS:
+* .bg-[#050812]  ->  rgba(255, 255, 255, 0.85) con blur (Fondo de Modal)
+* .bg-[#03060f]  ->  rgba(255, 255, 255, 0.85) con blur
+* .bg-[#0f172a]  ->  #effaff (Fondo del Panel principal)
+* .bg-[#0b101e]  ->  #effaff
+* .bg-[#0d1323]  ->  #effaff
+* .bg-[#111827]  ->  #dff4ff (Header / Cabeceras de tablas)
+* .bg-[#0a0e17]  ->  #f0faff (Filas expandibles de detalle)
+* .bg-[#151c2f]  ->  rgba(182, 236, 255, 0.30) (Filas activas / seleccionadas)
+* .bg-black/80   ->  rgba(0, 99, 141, 0.08) (Overlays de modales)
+
+TEXTOS:
+* .text-white      ->  #04354d (Navy oscuro, alta legibilidad)
+* .text-slate-200  ->  #04354d
+* .text-slate-300  ->  #055374
+* .text-slate-400  ->  #0177ab
+* .text-slate-500  ->  #0196d4
+* .text-slate-600  ->  #00638d
+* .text-slate-700  ->  #00aae1
+* .text-['#06b6d4'] -> #0177ab
+
+BORDES:
+* .border-[#1e293b]  ->  rgba(0, 170, 225, 0.25) (Borde cian translúcido)
+========================================================================
