@@ -11,11 +11,18 @@ import { cn } from "@/lib/utils"
 
 function DocModalListener() {
   const [open, setOpen] = React.useState(false)
-  const [docContent, setDocContent] = React.useState({
+  const [docContent, setDocContent] = React.useState<{
+    title: string
+    method: string
+    example: string
+    output: string
+    notes?: { label: string; rows: { col1: string; col2: string; col3: string }[] } | null
+  }>({
     title: "Documentación PL/SQL",
     method: "N/A",
     example: "-- No hay ejemplo disponible",
-    output: "-- No hay salida esperada"
+    output: "-- No hay salida esperada",
+    notes: null
   })
 
   React.useEffect(() => {
@@ -25,32 +32,174 @@ function DocModalListener() {
         
         const path = window.location.pathname
         if (path.includes("/alertas") && path.includes("/logs")) {
-          setDocContent({
-            title: "Logs Específicos de Alerta",
-            method: "pkgln_alertas.p_get_logs_alerta",
-            example: `DECLARE\n  v_cursor pkgln_alertas.cur_type;\n  v_rec TKR_LOG_ALERTAS%ROWTYPE;\nBEGIN\n  pkgln_alertas.p_get_logs_alerta(1, v_cursor);\n  LOOP\n    FETCH v_cursor INTO v_rec;\n    EXIT WHEN v_cursor%NOTFOUND;\n    DBMS_OUTPUT.PUT_LINE('Log: ' || v_rec.LOG);\n  END LOOP;\n  CLOSE v_cursor;\nEND;`,
-            output: `// Salida en consola DBMS:\nLog: Falla conexión... | Estado: F`
-          })
+          const isResolving = document.body.innerText.includes("Resolver Incidente") || 
+                              document.body.innerText.includes("Resolve Incident") ||
+                              document.body.innerText.includes("Detalles de Solución") ||
+                              document.body.innerText.includes("Solution Details");
+
+          if (isResolving) {
+            setDocContent({
+              title: "Resolver Incidente (Logs de Alerta)",
+              method: "pkgln_alertas.p_save_log_solucion",
+              example: `-- ► SOLUCIONAR INCIDENTE (S) — POST /api/alertas/{id}/logs
+-- Body JSON enviado desde la UI:
+-- {
+--   "id_log": 154,
+--   "comentarios_solucion": "Se reinició el servicio y se liberó espacio."
+-- }
+
+BEGIN
+  pkgln_alertas.p_save_log_solucion(
+    p_id_log               => 154,
+    p_estado               => 'S',        -- Por defecto 'S' (Solucionado) en esta ruta
+    p_id_persona_asignada  => NULL,
+    p_solucionado          => 'admin',    -- Usuario de sesión (session.username)
+    p_comentarios_solucion => 'Se reinició el servicio y se liberó espacio.' -- Obligatorio
+  );
+END;`,
+              output: `-- Cambios aplicados en TKR_LOG_ALERTAS:
+- Estado pasa a 'S' (Solucionado).
+- Guarda SOLUCIONADO y FECHA_SOLUCION (Sysdate).
+- COMENTARIOS_SOLUCION se concatena de forma acumulativa (append) con marca de tiempo y usuario.
+- Se registra la auditoría correspondiente en la columna LOG_ESTADO.`,
+              notes: {
+                label: "Referencia de campos del formulario → parámetros Oracle",
+                rows: [
+                  { col1: "Comentarios de Solución", col2: "Texto descriptivo de la solución técnica aplicada (obligatorio).", col3: "p_comentarios_solucion CLOB" }
+                ]
+              }
+            })
+          } else {
+            setDocContent({
+              title: "Logs Específicos de Alerta",
+              method: "pkgln_alertas.p_get_logs_alerta",
+              example: `DECLARE\n  v_cursor pkgln_alertas.cur_type;\n  v_rec TKR_LOG_ALERTAS%ROWTYPE;\nBEGIN\n  pkgln_alertas.p_get_logs_alerta(1, v_cursor);\n  LOOP\n    FETCH v_cursor INTO v_rec;\n    EXIT WHEN v_cursor%NOTFOUND;\n    DBMS_OUTPUT.PUT_LINE('Log: ' || v_rec.LOG);\n  END LOOP;\n  CLOSE v_cursor;\nEND;`,
+              output: `// Salida en consola DBMS:\nLog: Falla conexión... | Estado: F`,
+              notes: null
+            })
+          }
         } else if (path.includes("/logs")) {
+          const isEditing = document.body.innerText.includes("Editar Log de Incidente") || 
+                            document.body.innerText.includes("Edit Incident Log") ||
+                            document.body.innerText.includes("Volver a Logs") ||
+                            document.body.innerText.includes("Back to Logs");
+
+          if (isEditing) {
+            setDocContent({
+              title: "Editar Log de Incidente (Resolución)",
+              method: "pkgln_alertas.p_save_log_solucion",
+              example: `-- ► ESCENARIO 1: ASIGNAR INCIDENTE (A) — PUT /api/logs/{id}
+-- Body JSON enviado desde la UI:
+-- {
+--   "estado": "A",
+--   "id_persona_asignada": 12,
+--   "comentarios_solucion": ""
+-- }
+
+BEGIN
+  pkgln_alertas.p_save_log_solucion(
+    p_id_log               => 154,        -- ID del log (TKR_LOG_ALERTAS)
+    p_estado               => 'A',        -- A = Asignado
+    p_id_persona_asignada  => 12,         -- FK de TKR_USUARIOS (Obligatorio si estado='A')
+    p_solucionado          => 'admin',    -- Usuario de sesión (session.username)
+    p_comentarios_solucion => NULL
+  );
+END;
+
+-- ► ESCENARIO 2: SOLUCIONAR INCIDENTE (S) — PUT /api/logs/{id}
+-- Body JSON enviado desde la UI:
+-- {
+--   "estado": "S",
+--   "id_persona_asignada": null,
+--   "comentarios_solucion": "Se reinició el servicio y se liberó espacio."
+-- }
+
+BEGIN
+  pkgln_alertas.p_save_log_solucion(
+    p_id_log               => 154,
+    p_estado               => 'S',        -- S = Solucionado
+    p_id_persona_asignada  => NULL,
+    p_solucionado          => 'admin',    -- Registrado en SOLUCIONADO y FECHA_SOLUCION
+    p_comentarios_solucion => 'Se reinició el servicio y se liberó espacio.' -- Obligatorio si estado='S'
+  );
+END;
+
+-- ► ESCENARIO 3: REGRESAR A PENDIENTE (P) — PUT /api/logs/{id}
+BEGIN
+  pkgln_alertas.p_save_log_solucion(
+    p_id_log               => 154,
+    p_estado               => 'P',        -- P = Pendiente
+    p_id_persona_asignada  => NULL,
+    p_solucionado          => 'admin',
+    p_comentarios_solucion => 'Se descarta solución por reincidencia.'
+  );
+END;`,
+              output: `-- Cambios aplicados en TKR_LOG_ALERTAS:
+- Actualiza ESTADO, ID_PERSONA_ASIGNADA.
+- Si es estado='S', guarda SOLUCIONADO y FECHA_SOLUCION (Sysdate).
+- COMENTARIOS_SOLUCION se concatena de forma acumulativa (append) con marca de tiempo y usuario.
+- LOG_ESTADO guarda la traza de auditoría de cambios de estado y asignación.
+- Si p_estado='A' y tiene correo, envía email automático con pasos a seguir e información de traza.`,
+              notes: {
+                label: "Referencia rápida: campos UI → parámetros Oracle",
+                rows: [
+                  { col1: "Estado de la Alerta",  col2: "P = Pendiente · A = Asignado · S = Solucionado",             col3: "p_estado VARCHAR2" },
+                  { col1: "Usuario Asignado",     col2: "ID de usuario (Rol 13). Requerido si el estado es 'Asignado'.", col3: "p_id_persona_asignada NUMBER" },
+                  { col1: "Solución Aplicada",    col2: "Texto descriptivo de solución. Requerido si es 'Solucionado'. Concatena al historial.", col3: "p_comentarios_solucion CLOB" }
+                ]
+              }
+            })
+          } else {
+            setDocContent({
+              title: "Reporte Global de Logs",
+              method: "pkgln_alertas.p_get_all_logs",
+              example: `DECLARE\n  v_cursor pkgln_alertas.cur_type;\nBEGIN\n  pkgln_alertas.p_get_all_logs(p_estado => 'P', p_resultado => v_cursor);\nEND;`,
+              output: `// Salida de cursor:\nAlerta: Usuarios bloqueados... | Estado: P`,
+              notes: null
+            })
+          }
+        } else if (path.includes("/alertas/schedule")) {
           setDocContent({
-            title: "Reporte Global de Logs",
-            method: "pkgln_alertas.p_get_all_logs",
-            example: `DECLARE\n  v_cursor pkgln_alertas.cur_type;\nBEGIN\n  pkgln_alertas.p_get_all_logs(p_estado => 'P', p_resultado => v_cursor);\nEND;`,
-            output: `// Salida de cursor:\nAlerta: Usuarios bloqueados... | Estado: P`
+            title: "Programación de Jobs — Oracle Scheduler",
+            method: "pkgln_alertas.p_save_programacion",
+            example: `-- Job DIARIO a las 08:00 (L-V)\nBEGIN\n  pkgln_alertas.p_save_programacion(\n    p_id_alerta       => 5,\n    p_tipo_frecuencia => 'Diario',\n    p_hora_ejecucion  => '08:00',\n    p_repetir_cada    => 1,        -- cada 1 día\n    p_dia_del_mes     => NULL,     -- no aplica en Diario\n    p_dias_operacion  => 'LUN,MAR,MIE,JUE,VIE',\n    p_fecha_inicio    => DATE '2025-01-01',\n    p_fecha_fin       => NULL\n  );\nEND;\n\n-- Job MENSUAL el día 1 de cada mes a las 09:00\nBEGIN\n  pkgln_alertas.p_save_programacion(\n    p_id_alerta       => 5,\n    p_tipo_frecuencia => 'Mensual',\n    p_hora_ejecucion  => '09:00',\n    p_repetir_cada    => 1,        -- cada 1 mes\n    p_dia_del_mes     => 1,        -- día 1 del mes\n    p_dias_operacion  => NULL,     -- ignorado en Mensual\n    p_fecha_inicio    => DATE '2025-01-01',\n    p_fecha_fin       => NULL\n  );\nEND;\n\n-- Job por MINUTOS cada 15 minutos\nBEGIN\n  pkgln_alertas.p_save_programacion(\n    p_id_alerta       => 5,\n    p_tipo_frecuencia => 'Minutos',\n    p_hora_ejecucion  => '00:00',  -- ignorado\n    p_repetir_cada    => 15,\n    p_dia_del_mes     => NULL,\n    p_dias_operacion  => NULL,\n    p_fecha_inicio    => DATE '2025-01-01',\n    p_fecha_fin       => NULL\n  );\nEND;`,
+            output: `-- repeat_interval generado por DBMS_SCHEDULER:\n\nDiario  (cada 1 día)       => FREQ=DAILY; INTERVAL=1; BYHOUR=8; BYMINUTE=0; BYSECOND=0\nMinutos (cada 15 min)      => FREQ=MINUTELY; INTERVAL=15\nSemanal (cada 2 semanas)   => FREQ=WEEKLY; BYDAY=MON,WED,FRI; INTERVAL=2; BYHOUR=8; ...\nMensual (día 1, cada mes)  => FREQ=MONTHLY; BYMONTHDAY=1; INTERVAL=1; BYHOUR=9; BYMINUTE=0; BYSECOND=0\nMensual (día 15, c/3 meses)=> FREQ=MONTHLY; BYMONTHDAY=15; INTERVAL=3; BYHOUR=9; BYMINUTE=0; BYSECOND=0`,
+            notes: {
+              label: "Referencia rápida: parámetros por tipo de frecuencia",
+              rows: [
+                { col1: "Minutos",  col2: "Usa: repetir_cada (N min). Hora y días ignorados.",      col3: "FREQ=MINUTELY; INTERVAL=N" },
+                { col1: "Diario",   col2: "Usa: hora + días operativos + repetir_cada.",            col3: "FREQ=DAILY; INTERVAL=N" },
+                { col1: "Semanal",  col2: "Usa: hora + días operativos + repetir_cada.",            col3: "FREQ=WEEKLY; BYDAY=...; INTERVAL=N" },
+                { col1: "Mensual",  col2: "Usa: día del mes + hora + repetir_cada. Días ignorados.", col3: "FREQ=MONTHLY; BYMONTHDAY=D; INTERVAL=N" },
+              ]
+            }
           })
         } else if (path.includes("/alertas")) {
           setDocContent({
-            title: "Gestión de Alertas",
-            method: "pkgln_alertas.p_get_alertas",
-            example: `DECLARE\n  v_cursor pkgln_alertas.cur_type;\nBEGIN\n  pkgln_alertas.p_get_alertas(NULL, 'A', v_cursor);\nEND;`,
-            output: `// Salida en consola DBMS:\nID: 1 | Falla crítica en el sistema`
+            title: "Editar / Crear Definición de Alerta",
+            method: "pkgln_alertas.p_save_alerta",
+            example: `-- ► CREAR (Nueva Alerta) — POST /api/alertas\n-- Body JSON enviado desde la UI:\n-- {\n--   "descripcion_alerta": "Falla crítica en cierres nocturnos",\n--   "tipo_proceso": "P",          -- P=Procedimiento, F=Función, S=SQL\n--   "proceso": "pkg_cierres.p_validar_cierre",\n--   "frecuencia": "Diario",\n--   "estado": "A",               -- A=Activa, I=Inactiva\n--   "pasos_a_seguir": "1. Verificar logs...",\n--   "correo": "ops@empresa.com",\n--   "telefono": "+573001234567",\n--   "prioridad": "A"             -- A=Alta, M=Media, B=Baja\n-- }\n\nBEGIN\n  pkgln_alertas.p_save_alerta(\n    p_id                 => NULL,  -- NULL = INSERT nuevo registro\n    p_descripcion_alerta => 'Falla crítica en cierres nocturnos',\n    p_tipo_proceso       => 'P',\n    p_proceso            => 'pkg_cierres.p_validar_cierre',\n    p_frecuencia         => 'Diario',\n    p_estado             => 'A',\n    p_pasos_a_seguir     => '1. Verificar logs del sistema...',\n    p_correo             => 'ops@empresa.com',\n    p_telefono           => '+573001234567',\n    p_prioridad          => 'A',\n    p_usuario            => 'admin',\n    p_new_id             => :v_new_id   -- OUT: ID generado\n  );\nEND;\n\n-- ► EDITAR (Actualizar Alerta) — PUT /api/alertas/{id}\n-- Mismos parámetros pero p_id = ID existente.\n-- Además ejecuta automáticamente:\n--   pkgln_alertas.p_toggle_jobs_alerta(p_id_alerta=>5, p_estado=>'A')\n-- para sincronizar el estado de los Jobs del Scheduler.\n\nBEGIN\n  pkgln_alertas.p_save_alerta(\n    p_id                 => 5,     -- ID existente = UPDATE\n    p_descripcion_alerta => 'Falla crítica en cierres nocturnos',\n    p_tipo_proceso       => 'P',\n    p_proceso            => 'pkg_cierres.p_validar_cierre',\n    p_frecuencia         => 'Diario',\n    p_estado             => 'I',   -- Desactivar alerta\n    p_pasos_a_seguir     => '1. Verificar logs del sistema...',\n    p_correo             => 'ops@empresa.com',\n    p_telefono           => '+573001234567',\n    p_prioridad          => 'M',\n    p_usuario            => 'admin',\n    p_new_id             => :v_id\n  );\n  -- Se desactivan también los Jobs del Scheduler:\n  pkgln_alertas.p_toggle_jobs_alerta(p_id_alerta => 5, p_estado => 'I');\nEND;`,
+            output: `-- Salida (p_new_id OUT):\nCrear => v_new_id = 25   (nuevo ID generado)\nEditar => v_id    = 5    (mismo ID actualizado)\n\n-- Columnas actualizadas en TKR_ALERTAS:\nDESCRIPCION_ALERTA, TIPO_PROCESO, PROCESO, FRECUENCIA,\nESTADO, PASOS_A_SEGUIR, CORREO, TELEFONO, PRIORIDAD,\nFECHA_MODIFICACION, MODIFICADO_POR`,
+            notes: {
+              label: "Referencia de campos del formulario → parámetros Oracle",
+              rows: [
+                { col1: "descripcion_alerta", col2: "Nombre descriptivo de la alerta",           col3: "p_descripcion_alerta VARCHAR2" },
+                { col1: "tipo_proceso",       col2: "P=Procedimiento · F=Función · S=SQL",       col3: "p_tipo_proceso VARCHAR2" },
+                { col1: "proceso",            col2: "Código SQL o nombre del proc/función",      col3: "p_proceso VARCHAR2" },
+                { col1: "estado",             col2: "A=Activa · I=Inactiva (toggle en UI)",      col3: "p_estado VARCHAR2" },
+                { col1: "prioridad",          col2: "A=Alta · M=Media · B=Baja",                col3: "p_prioridad VARCHAR2" },
+                { col1: "correo / telefono",  col2: "Notificaciones de incidente",              col3: "p_correo / p_telefono VARCHAR2" },
+                { col1: "pasos_a_seguir",     col2: "Guía de resolución (se envía en correo)",  col3: "p_pasos_a_seguir CLOB" },
+              ]
+            }
           })
         } else {
           setDocContent({
             title: "Login / Seguridad",
             method: "pkgln_seguridad.f_validar_clave",
             example: `DECLARE\n  v_ret NUMBER;\nBEGIN\n  v_ret := pkgln_seguridad.f_validar_clave('admin', '123', 1);\nEND;`,
-            output: `// Resultado: 1`
+            output: `// Resultado: 1`,
+            notes: null
           })
         }
         
@@ -71,25 +220,64 @@ function DocModalListener() {
   return (
     <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
       <div className="fixed inset-0" onClick={() => setOpen(false)} />
-      <div className="relative z-[100] w-full max-w-2xl border bg-background p-6 rounded-lg shadow-lg">
-        <h2 className="text-xl font-bold mb-4">{docContent.title}</h2>
+      <div className="relative z-[100] w-full max-w-3xl border bg-background p-6 rounded-lg shadow-lg max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <p className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground mb-1">Documentación PL/SQL · Ctrl+Alt+D</p>
+            <h2 className="text-xl font-bold">{docContent.title}</h2>
+          </div>
+          <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground text-xs font-bold uppercase tracking-wide border border-border rounded px-2 py-1 hover:bg-muted transition-colors ml-4 flex-shrink-0">ESC / Cerrar</button>
+        </div>
+
+        {/* Método */}
         <div className="mb-4">
           <p className="text-sm font-semibold mb-1">Método de Base de Datos:</p>
           <code className="text-sm bg-muted px-2 py-1 rounded">{docContent.method}</code>
         </div>
+
+        {/* Tabla REPETIR_CADA si aplica */}
+        {docContent.notes && (
+          <div className="mb-4">
+            <p className="text-sm font-semibold mb-2">{docContent.notes.label}:</p>
+            <table className="w-full text-xs border-collapse rounded overflow-hidden">
+              <thead>
+                <tr className="bg-muted text-muted-foreground">
+                  <th className="text-left px-3 py-2 border border-border font-bold uppercase tracking-wide">Frecuencia</th>
+                  <th className="text-left px-3 py-2 border border-border font-bold uppercase tracking-wide">Significado</th>
+                  <th className="text-left px-3 py-2 border border-border font-bold uppercase tracking-wide">repeat_interval generado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docContent.notes.rows.map((row, i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    <td className="px-3 py-2 border border-border font-bold text-primary">{row.col1}</td>
+                    <td className="px-3 py-2 border border-border text-foreground">{row.col2}</td>
+                    <td className="px-3 py-2 border border-border font-mono text-[11px] text-green-500">{row.col3}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Ejemplo */}
         <div className="mb-4 relative">
           <p className="text-sm font-semibold mb-1">Ejemplo (Bloque Anónimo):</p>
-          <pre className="text-sm bg-muted p-4 rounded overflow-x-auto">
+          <pre className="text-sm bg-muted p-4 rounded overflow-x-auto pr-16">
             {docContent.example}
           </pre>
           <Button size="sm" variant="outline" className="absolute top-8 right-2 h-8" onClick={copyToClipboard}>
             Copiar
           </Button>
         </div>
+
+        {/* Salida */}
         <div className="mb-6">
-          <p className="text-sm font-semibold mb-1">Salida Esperada:</p>
-          <code className="text-sm bg-muted px-2 py-1 rounded block whitespace-pre-wrap">{docContent.output}</code>
+          <p className="text-sm font-semibold mb-1">Salida Esperada / repeat_interval:</p>
+          <code className="text-sm bg-muted px-3 py-3 rounded block whitespace-pre-wrap font-mono leading-relaxed">{docContent.output}</code>
         </div>
+
         <div className="flex justify-end">
           <Button onClick={() => setOpen(false)}>Cerrar</Button>
         </div>

@@ -67,10 +67,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { 
       id_alerta, tipo_frecuencia, hora_ejecucion, 
-      repetir_cada, dias_operacion, fecha_inicio, fecha_fin 
+      repetir_cada, dia_del_mes, dias_operacion, fecha_inicio, fecha_fin 
     } = body;
 
     // Aquí irían las validaciones correspondientes
+
+    // Convierte string 'YYYY-MM-DD' a Date en mediodía UTC para evitar desfase de timezone.
+    // new Date("2025-01-01") = medianoche UTC → en Colombia (UTC-5) es el día anterior.
+    // Con 'T12:00:00' la fecha calendario siempre llega correcta a Oracle, independientemente
+    // del timezone del servidor Node o de la sesión Oracle.
+    const toOracleDate = (dateStr: string) => new Date(dateStr + 'T12:00:00');
 
     connection = await getOracleConnection();
 
@@ -79,9 +85,10 @@ export async function POST(request: NextRequest) {
       p_tipo_frecuencia: { val: tipo_frecuencia, type: oracledb.STRING, dir: oracledb.BIND_IN },
       p_hora_ejecucion: { val: hora_ejecucion, type: oracledb.STRING, dir: oracledb.BIND_IN },
       p_repetir_cada: { val: Number(repetir_cada), type: oracledb.NUMBER, dir: oracledb.BIND_IN },
-      p_dias_operacion: { val: dias_operacion, type: oracledb.STRING, dir: oracledb.BIND_IN },
-      p_fecha_inicio: { val: new Date(fecha_inicio), type: oracledb.DATE, dir: oracledb.BIND_IN },
-      p_fecha_fin: { val: fecha_fin ? new Date(fecha_fin) : null, type: oracledb.DATE, dir: oracledb.BIND_IN }
+      p_dia_del_mes: { val: dia_del_mes != null ? Number(dia_del_mes) : null, type: oracledb.NUMBER, dir: oracledb.BIND_IN },
+      p_dias_operacion: { val: dias_operacion ?? null, type: oracledb.STRING, dir: oracledb.BIND_IN },
+      p_fecha_inicio: { val: toOracleDate(fecha_inicio), type: oracledb.DATE, dir: oracledb.BIND_IN },
+      p_fecha_fin: { val: fecha_fin ? toOracleDate(fecha_fin) : null, type: oracledb.DATE, dir: oracledb.BIND_IN }
     };
 
     await connection.execute(
@@ -91,6 +98,7 @@ export async function POST(request: NextRequest) {
            p_tipo_frecuencia => :p_tipo_frecuencia,
            p_hora_ejecucion  => :p_hora_ejecucion,
            p_repetir_cada    => :p_repetir_cada,
+           p_dia_del_mes     => :p_dia_del_mes,
            p_dias_operacion  => :p_dias_operacion,
            p_fecha_inicio    => :p_fecha_inicio,
            p_fecha_fin       => :p_fecha_fin

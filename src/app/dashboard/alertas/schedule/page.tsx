@@ -25,6 +25,7 @@ export default function ScheduleAlertPage() {
   const [executionTime, setExecutionTime] = React.useState("09:00")
   const [repeatEvery, setRepeatEvery] = React.useState(1)
   const [selectedDays, setSelectedDays] = React.useState(["LUN", "MAR", "MIE", "JUE", "VIE"])
+  const [dayOfMonth, setDayOfMonth] = React.useState(1)
   const [startDate, setStartDate] = React.useState("2024-05-20")
   const [endDate, setEndDate] = React.useState("")
   const [alertProcess, setAlertProcess] = React.useState("")
@@ -92,7 +93,8 @@ export default function ScheduleAlertPage() {
           tipo_frecuencia: frequency,
           hora_ejecucion: executionTime,
           repetir_cada: repeatEvery,
-          dias_operacion: selectedDays.join(","),
+          dia_del_mes: frequency === "Mensual" ? dayOfMonth : null,
+          dias_operacion: frequency === "Mensual" ? null : selectedDays.join(","),
           fecha_inicio: startDate,
           fecha_fin: endDate || null
         })
@@ -346,9 +348,15 @@ export default function ScheduleAlertPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className={cn(
-                  "text-[11px] font-bold uppercase tracking-wide",
+                  "text-[11px] font-bold uppercase tracking-wide flex items-center gap-2",
                   frequency === "Minutos" ? "text-slate-600" : "text-slate-400"
-                )}>Hora de Ejecución {frequency === "Minutos" && <span className="text-slate-600 font-normal normal-case">(no aplica para minutos)</span>}</label>
+                )}>
+                  Hora de Ejecución
+                  {frequency === "Minutos"
+                    ? <span className="text-slate-600 font-normal normal-case">(no aplica para minutos)</span>
+                    : <span className="text-[10px] font-bold bg-[#06b6d4]/10 text-[#06b6d4] border border-[#06b6d4]/30 rounded px-1.5 py-0.5 normal-case tracking-normal">🕐 Hora Colombia (UTC-5)</span>
+                  }
+                </label>
                 <div className="relative">
                   <Clock className={cn("w-4 h-4 absolute left-3 top-3", frequency === "Minutos" ? "text-slate-700" : "text-slate-500")} />
                   <input 
@@ -366,31 +374,60 @@ export default function ScheduleAlertPage() {
                 </div>
               </div>
               
-              <div className="space-y-2">
-                 <label className={cn(
-                   "text-[11px] font-bold uppercase tracking-wide",
-                   frequency === "Minutos" ? "text-slate-600" : "text-slate-400"
-                 )}>Días Operativos {frequency === "Minutos" && <span className="text-slate-600 font-normal normal-case">(no aplica)</span>}</label>
-                 <div className="flex space-x-2">
-                   {daysList.map((day, idx) => {
-                     const isSel = selectedDays.includes(day.id)
-                     return (
-                       <button
-                         key={idx}
-                         onClick={() => frequency !== "Minutos" && toggleDay(day.id)}
-                         className={cn(
-                           "w-8 h-8 rounded border flex items-center justify-center text-xs font-bold transition-colors",
-                           frequency === "Minutos" 
-                             ? "border-[#1e293b]/50 text-slate-700 cursor-not-allowed opacity-40"
-                             : isSel ? "border-[#06b6d4] text-[#06b6d4] bg-[#06b6d4]/10" : "border-[#1e293b] text-slate-500 hover:border-slate-400"
-                         )}
-                       >
-                         {day.label}
-                       </button>
-                     )
-                   })}
-                 </div>
-              </div>
+              {/* Días Operativos — se oculta en modo Mensual */}
+              {frequency !== "Mensual" && (
+                <div className="space-y-2">
+                  <label className={cn(
+                    "text-[11px] font-bold uppercase tracking-wide",
+                    frequency === "Minutos" ? "text-slate-600" : "text-slate-400"
+                  )}>Días Operativos {frequency === "Minutos" && <span className="text-slate-600 font-normal normal-case">(no aplica)</span>}</label>
+                  <div className="flex space-x-2">
+                    {daysList.map((day, idx) => {
+                      const isSel = selectedDays.includes(day.id)
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => frequency !== "Minutos" && toggleDay(day.id)}
+                          className={cn(
+                            "w-8 h-8 rounded border flex items-center justify-center text-xs font-bold transition-colors",
+                            frequency === "Minutos" 
+                              ? "border-[#1e293b]/50 text-slate-700 cursor-not-allowed opacity-40"
+                              : isSel ? "border-[#06b6d4] text-[#06b6d4] bg-[#06b6d4]/10" : "border-[#1e293b] text-slate-500 hover:border-slate-400"
+                          )}
+                        >
+                          {day.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Día del Mes — solo en modo Mensual */}
+              {frequency === "Mensual" && (
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                    Día del Mes
+                    <span className="ml-2 text-slate-500 font-normal normal-case">(1 – 31)</span>
+                  </label>
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="number"
+                      value={dayOfMonth}
+                      onChange={e => setDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value))))}
+                      min={1}
+                      max={31}
+                      className="w-20 bg-[#050812] border border-[#1e293b] text-center text-slate-300 rounded-md h-10 text-sm focus:outline-none focus:ring-1 focus:ring-[#06b6d4]"
+                    />
+                    <span className="text-sm text-slate-400 font-medium">
+                      {dayOfMonth === 1 ? 'Primer día del mes' :
+                       dayOfMonth === 15 ? 'Día 15 (quincena)' :
+                       dayOfMonth === 28 ? 'Último día seguro (todos los meses)' :
+                       `Día ${dayOfMonth} de cada mes`}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -398,15 +435,19 @@ export default function ScheduleAlertPage() {
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Repetir Cada</label>
                 <div className="flex items-center">
                   <input type="number" value={repeatEvery} onChange={e => setRepeatEvery(Number(e.target.value))} min={1} className="w-20 bg-[#050812] border border-[#1e293b] text-center text-slate-300 rounded-md h-10 text-sm focus:outline-none focus:ring-1 focus:ring-[#06b6d4]" />
-                  <span className="ml-3 text-sm text-slate-400 font-medium">{frequency === "Minutos" ? "Minuto(s)" : "Ciclo(s)"}</span>
+                  <span className="ml-3 text-sm text-slate-400 font-medium">
+                    {frequency === "Minutos" ? "Minuto(s)" : frequency === "Mensual" ? "Mes(es)" : "Ciclo(s)"}
+                  </span>
                 </div>
               </div>
               
               <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-4 flex items-start mt-2">
                 <Info className="w-4 h-4 text-orange-500 mr-3 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-orange-900 dark:text-orange-200 leading-relaxed font-semibold">
-                  {frequency === "Minutos" 
+                  {frequency === "Minutos"
                     ? `El sistema correrá el DBMS_SCHEDULER de esta alerta cada ${repeatEvery} minuto(s).`
+                    : frequency === "Mensual"
+                    ? `El sistema correrá el día ${dayOfMonth} de cada ${repeatEvery === 1 ? 'mes' : `${repeatEvery} meses`} a las ${executionTime}.`
                     : `El sistema correrá el DBMS_SCHEDULER de esta alerta a las ${executionTime} en los días seleccionados.`
                   }
                 </p>

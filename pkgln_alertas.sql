@@ -97,6 +97,7 @@ CREATE OR REPLACE PACKAGE pkgln_alertas AS
     p_tipo_frecuencia IN VARCHAR2,
     p_hora_ejecucion  IN VARCHAR2,
     p_repetir_cada    IN NUMBER,
+    p_dia_del_mes     IN NUMBER DEFAULT 1,
     p_dias_operacion  IN VARCHAR2,
     p_fecha_inicio    IN DATE,
     p_fecha_fin       IN DATE
@@ -512,6 +513,7 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
       p_tipo_frecuencia IN VARCHAR2,
       p_hora_ejecucion  IN VARCHAR2,
       p_repetir_cada    IN NUMBER,
+      p_dia_del_mes     IN NUMBER DEFAULT 1,
       p_dias_operacion  IN VARCHAR2,
       p_fecha_inicio    IN DATE,
       p_fecha_fin       IN DATE
@@ -571,11 +573,22 @@ CREATE OR REPLACE PACKAGE BODY pkgln_alertas AS
           v_days_eng := REPLACE(v_days_eng, 'DOM', 'SUN');
           v_repeat_eval := 'FREQ=WEEKLY; BYDAY=' || v_days_eng || '; INTERVAL=' || p_repetir_cada || v_time_suffix;
       ELSIF UPPER(p_tipo_frecuencia) = 'MENSUAL' THEN
-          v_repeat_eval := 'FREQ=MONTHLY; INTERVAL=' || p_repetir_cada || v_time_suffix;
+          -- Usa BYMONTHDAY para ejecutar en el dia exacto del mes (p_dia_del_mes)
+          -- Ejemplo: dia 1 de cada mes a las 09:00 => FREQ=MONTHLY;BYMONTHDAY=1;INTERVAL=1;BYHOUR=9;BYMINUTE=0;BYSECOND=0
+          v_repeat_eval := 'FREQ=MONTHLY; BYMONTHDAY=' || NVL(p_dia_del_mes, 1) 
+                        || '; INTERVAL=' || p_repetir_cada 
+                        || v_time_suffix;
       ELSE
           v_repeat_eval := 'FREQ=DAILY' || v_time_suffix; 
       END IF;
 
+      -- ========================================================
+      -- CONSTRUCCION DE FECHAS EN HORA COLOMBIA (America/Bogota)
+      -- FROM_TZ marca el timestamp como UTC-5 (sin DST).
+      -- DBMS_SCHEDULER interpreta BYHOUR/BYMINUTE en esa misma
+      -- zona horaria, por lo que la hora configurada en la UI
+      -- corresponde exactamente a la hora local de Colombia.
+      -- ========================================================
       v_start_ts := TO_TIMESTAMP(TO_CHAR(p_fecha_inicio, 'YYYY-MM-DD') || ' ' || v_hour || ':' || v_min || ':00', 'YYYY-MM-DD HH24:MI:SS');
       v_start_tz := FROM_TZ(v_start_ts, 'America/Bogota');
       IF p_fecha_fin IS NOT NULL THEN
