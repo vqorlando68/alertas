@@ -18,10 +18,9 @@ Aplicación web desarrollada en React con Next.js (App Router) y Tailwind CSS pa
 3.  **Configurar Variables de Entorno:**
     Asegúrese de que el archivo `.env.local` exista en la raíz del proyecto con las siguientes variables (ajustadas a su entorno de desarrollo):
     ```env
-    DB_USER=TEKER_DEV
-    DB_PASSWORD=T3k3r_2025_D3v_$ecur3
-    DB_CONNECTION_STRING=tekerapp-db.maxapex.net:1521/orclpdb1
-    JWT_SECRET=super_secret_key_for_development_replace_in_prod
+    DB_USER=
+    DB_PASSWORD=
+    DB_CONNECTION_STRING=
     ```
 4.  **Ejecutar Script de Base de Datos:**
     Antes de inicializar la aplicación, ejecute el script `pkgln_alertas.sql` en su base de datos Oracle para crear el paquete PL/SQL correspondiente que maneja la lógica de negocio.

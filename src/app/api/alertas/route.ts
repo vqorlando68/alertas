@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
     const result = await connection.execute(
       `BEGIN
-         TEKER_DEV.pkgln_alertas.p_get_alertas(
+         pkgln_alertas.p_get_alertas(
            p_id => :p_id,
            p_estado => :p_estado,
            p_resultado => :p_resultado
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     } catch (fetchErr) {
       console.error("SILENT FETCH ERROR CAUGHT ON ROW", allRows.length + 1, fetchErr);
     }
-    
+
     await resultSet.close();
 
     console.log(`Fetched ${allRows.length} rows from Oracle for /api/alertas`);
