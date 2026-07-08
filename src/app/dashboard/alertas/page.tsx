@@ -24,7 +24,29 @@ const schema = z.object({
   frecuencia: z.string().optional(),
   estado: z.string().min(1, "Estado requerido"),
   pasos_a_seguir: z.string().optional(),
-  correo: z.string().email("Correo inválido").optional().or(z.literal("")),
+  correo: z.string()
+    .or(z.literal(""))
+    .refine((val) => {
+      if (!val || val.trim() === "") return true;
+      const emails = val.split(',').map(email => email.trim()).filter(Boolean);
+      if (emails.length === 0) return false;
+      return emails.every(email => z.string().email().safeParse(email).success);
+    }, "Uno o más correos son inválidos")
+    .transform((val) => {
+      if (!val || val.trim() === "") return val;
+      const emails = val.split(',').map(email => email.trim()).filter(Boolean);
+      const seen = new Set<string>();
+      const uniqueEmails: string[] = [];
+      for (const email of emails) {
+        const lower = email.toLowerCase();
+        if (!seen.has(lower)) {
+          seen.add(lower);
+          uniqueEmails.push(email);
+        }
+      }
+      return uniqueEmails.join(', ');
+    })
+    .optional(),
   telefono: z.string().optional(),
   prioridad: z.string().optional(),
 })
